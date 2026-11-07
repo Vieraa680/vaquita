@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import os
+import signal
 import subprocess
 
 
@@ -12,27 +14,34 @@ class CommandResult:
 
 def execute_command(command: str, timeout: float = 30.0) -> CommandResult:
     try:
-        process = subprocess.run(
+        process = subprocess.Popen(
             ["bash", "-c", command],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            start_new_session=True,
         )
-        return CommandResult(
-            exit_code=process.returncode,
-            stdout=process.stdout,
-            stderr=process.stderr,
-            timed_out=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        stdout_str = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout.decode() if exc.stdout else "")
-        stderr_str = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr.decode() if exc.stderr else "")
-        return CommandResult(
-            exit_code=-1,
-            stdout=stdout_str,
-            stderr=f"Command timed out after {timeout} seconds: {stderr_str}".strip(),
-            timed_out=True,
-        )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            return CommandResult(
+                exit_code=process.returncode,
+                stdout=stdout,
+                stderr=stderr,
+                timed_out=False,
+            )
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = process.communicate()
+            stderr_msg = f"Command timed out after {timeout} seconds: {stderr or ''}".strip()
+            return CommandResult(
+                exit_code=-1,
+                stdout=stdout or "",
+                stderr=stderr_msg,
+                timed_out=True,
+            )
     except OSError as exc:
         return CommandResult(
             exit_code=-1,
