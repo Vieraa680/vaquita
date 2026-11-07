@@ -44,8 +44,12 @@ def test_bash_tool_execute_failure() -> None:
 
 def test_bash_tool_blocks_destructive_command() -> None:
     tool = BashTool()
-    output = tool.execute(command="rm -rf /")
-    assert "Execution blocked" in output
+    assert "Execution blocked" in tool.execute(command="rm -rf /")
+    assert "Execution blocked" in tool.execute(command="rm -rf /etc")
+    assert "Execution blocked" in tool.execute(command="rm -rf *")
+    assert "Execution blocked" in tool.execute(command="rm -rf .")
+    assert "Execution blocked" in tool.execute(command="rm -rf ~/projects")
+    assert "Execution blocked" in tool.execute(command="rm -r -f /var")
 
 
 def test_bash_tool_timeout() -> None:
@@ -85,6 +89,10 @@ def test_is_mutating_command() -> None:
     assert is_mutating_command("kill -9 1234")
     assert is_mutating_command("systemctl restart nginx")
     assert is_mutating_command("echo hello > out.txt")
+    assert is_mutating_command("git reset --hard HEAD~1")
+    assert is_mutating_command("git clean -fdx")
+    assert is_mutating_command("echo text | tee log.txt")
+    assert is_mutating_command("pip install requests")
 
 
 def test_bash_tool_confirm_approved() -> None:

@@ -7,23 +7,26 @@ from vaquita.infrastructure.shell import execute_command
 from vaquita.tools.base import BaseTool
 
 _BLOCKED_PATTERNS = [
-    r"\brm\s+.*-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r)\s+.*(/|~|\$HOME)(\s|$|\*)",
-    r"\brm\s+-[a-zA-Z]*\s+-[a-zA-Z]*\s+.*(/|~|\$HOME)(\s|$|\*)",
-    r"\bmkfs\b",
-    r"\bdd\s+if=.*of=/dev/",
+    r"(?:^|[;&|]\s*)rm\s+.*-(?:[a-zA-Z]*r[a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*r)\s+.*(?:/(?:bin|boot|dev|etc|home|lib|opt|proc|root|run|sbin|sys|tmp|usr|var)?|\~|\$HOME|\.|\.\.|\*|\.\*)(?:\s|/|$|\*)",
+    r"(?:^|[;&|]\s*)rm\s+(?:-[a-zA-Z]+\s+)*-(?:r|R|f)\b.*-(?:r|R|f)\b.*(?:/(?:bin|boot|dev|etc|home|lib|opt|proc|root|run|sbin|sys|tmp|usr|var)?|\~|\$HOME|\.|\.\.|\*|\.\*)(?:\s|/|$|\*)",
+    r"(?:^|[;&|]\s*)rm\s+.*--(?:recursive.*--force|force.*--recursive)\b",
+    r"(?:^|[;&|]\s*)mkfs\b",
+    r"(?:^|[;&|]\s*)dd\s+if=.*of=/dev/",
     r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",
-    r"\b(shutdown|reboot|poweroff|init\s+0)\b",
+    r"(?:^|[;&|]\s*)(?:shutdown|reboot|poweroff|init\s+0)\b",
 ]
 
 _MUTATING_PATTERNS = [
     r"\b(rm|rmdir|unlink)\b",
     r"\b(kill|pkill|killall)\b",
     r"\bsystemctl\s+(start|stop|restart|reload|enable|disable|mask|unmask)\b",
-    r"\b(pacman|yay|paru|apt|apt-get|dnf|yum|zypper)\b",
+    r"\b(pacman|yay|paru|apt|apt-get|dnf|yum|zypper|pip|npm|cargo)\b",
     r"\b(chmod|chown|chgrp)\b",
     r"\b(mv|cp)\b",
     r"\b(useradd|userdel|usermod|groupadd|groupdel)\b",
     r"\b(iptables|ufw|firewall-cmd)\b",
+    r"\bgit\s+(reset|clean|checkout|revert)\b",
+    r"\btee\b",
     r"(?:^|[^<])>(?:[^>]|$)",
     r">>",
     r"\bsed\s+.*-i\b",
