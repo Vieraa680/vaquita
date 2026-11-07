@@ -92,3 +92,17 @@ def test_main_interactive_query_flow(capsys: pytest.CaptureFixture[str]) -> None
         mock_agent.run.assert_called_once_with("status")
         captured = capsys.readouterr()
         assert "All good" in captured.out
+
+
+def test_main_interactive_clear_command(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_agent = MagicMock()
+
+    with (
+        patch("vaquita.interface.cli.build_agent", return_value=mock_agent),
+        patch("builtins.input", side_effect=["clear", "exit"]),
+    ):
+        code = main([])
+        assert code == 0
+        mock_agent.reset.assert_called_once()
+        captured = capsys.readouterr()
+        assert "Session history cleared." in captured.out

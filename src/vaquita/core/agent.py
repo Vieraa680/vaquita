@@ -22,33 +22,63 @@ class VaquitaAgent:
         tools: Sequence[BaseTool] | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_iterations: int = 5,
+        max_history_messages: int = 20,
         on_tool_execute: Callable[[ToolCall], None] | None = None,
     ) -> None:
         self._provider = provider
         self._tools_map = {tool.definition.name: tool for tool in (tools or [])}
         self._system_prompt = system_prompt
         self._max_iterations = max_iterations
+        self._max_history_messages = max_history_messages
         self._on_tool_execute = on_tool_execute
+        self._history: list[Message] = []
+        self.reset()
+
+    def reset(self) -> None:
+        self._history = []
+        if self._system_prompt.strip():
+            self._history.append(Message(role="system", content=self._system_prompt))
+
+    @property
+    def history(self) -> list[Message]:
+        return list(self._history)
 
     @property
     def tool_definitions(self) -> list[ToolDefinition]:
         return [tool.definition for tool in self._tools_map.values()]
 
-    def run(self, user_input: str) -> str:
-        messages: list[Message] = []
-        if self._system_prompt.strip():
-            messages.append(Message(role="system", content=self._system_prompt))
+    def _trim_history(self) -> None:
+        has_system = bool(self._history and self._history[0].role == "system")
+        system_offset = 1 if has_system else 0
+        non_system_messages = self._history[system_offset:]
 
-        messages.append(Message(role="user", content=user_input))
+        if len(non_system_messages) > self._max_history_messages:
+            kept = non_system_messages[-self._max_history_messages:]
+            if has_system:
+                self._history = [self._history[0]] + kept
+            else:
+                self._history = kept
+
+    def run(self, user_input: str) -> str:
+        self._history.append(Message(role="user", content=user_input))
+        self._trim_history()
         tool_defs = self.tool_definitions or None
 
         for _ in range(self._max_iterations):
-            response = self._provider.generate(messages, tools=tool_defs)
+            response = self._provider.generate(list(self._history), tools=tool_defs)
 
             if not response.tool_calls:
+                self._history.append(
+                    Message(
+                        role="model",
+                        content=response.text,
+                        raw_content=response.raw_content,
+                    )
+                )
+                self._trim_history()
                 return response.text or ""
 
-            messages.append(
+            self._history.append(
                 Message(
                     role="model",
                     content=response.text,
@@ -67,7 +97,7 @@ class VaquitaAgent:
                 else:
                     result_content = tool.execute(**call.arguments)
 
-                messages.append(
+                self._history.append(
                     Message(
                         role="tool",
                         name=call.name,
@@ -76,4 +106,5 @@ class VaquitaAgent:
                     )
                 )
 
+        self._trim_history()
         return "Execution stopped: Maximum iteration limit reached."

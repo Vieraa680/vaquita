@@ -80,3 +80,51 @@ def test_agent_iteration_limit() -> None:
 
     assert "Maximum iteration limit reached" in result
     assert mock_provider.generate.call_count == 3
+
+
+def test_agent_preserves_history_across_turns() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.side_effect = [
+        LLMResponse(text="response one"),
+        LLMResponse(text="response two"),
+    ]
+
+    agent = VaquitaAgent(provider=mock_provider)
+    agent.run("query one")
+    agent.run("query two")
+
+    assert mock_provider.generate.call_count == 2
+    second_call_messages = mock_provider.generate.call_args_list[1].args[0]
+    roles = [m.role for m in second_call_messages]
+    assert roles == ["system", "user", "model", "user"]
+    assert second_call_messages[1].content == "query one"
+    assert second_call_messages[2].content == "response one"
+    assert second_call_messages[3].content == "query two"
+
+
+def test_agent_reset() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="answer")
+
+    agent = VaquitaAgent(provider=mock_provider)
+    agent.run("initial query")
+    assert len(agent.history) == 3
+
+    agent.reset()
+    assert len(agent.history) == 1
+    assert agent.history[0].role == "system"
+
+
+def test_agent_history_trimming() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="ok")
+
+    agent = VaquitaAgent(provider=mock_provider, max_history_messages=4)
+    for i in range(5):
+        agent.run(f"turn {i}")
+
+    # 1 system message + at most 4 recent non-system messages
+    assert len(agent.history) == 5
+    assert agent.history[0].role == "system"
+    assert agent.history[-1].role == "model"
+

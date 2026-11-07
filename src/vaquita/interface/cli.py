@@ -77,7 +77,7 @@ def build_agent(provider_name: str | None = None) -> VaquitaAgent:
 
 
 def run_interactive(agent: VaquitaAgent) -> None:
-    print("Vaquita - Terminal Assistant (type 'exit' or 'quit' to leave)")
+    print("Vaquita - Terminal Assistant (type 'exit' to quit, 'clear' to reset history)")
     while True:
         try:
             user_input = input("vaquita> ").strip()
@@ -89,6 +89,10 @@ def run_interactive(agent: VaquitaAgent) -> None:
             continue
         if user_input.lower() in ("exit", "quit"):
             break
+        if user_input.lower() in ("clear", "reset"):
+            agent.reset()
+            print("Session history cleared.")
+            continue
 
         try:
             response = agent.run(user_input)
