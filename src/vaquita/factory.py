@@ -1,0 +1,77 @@
+from collections.abc import Callable
+import os
+
+from vaquita.core.agent import VaquitaAgent
+from vaquita.core.providers import (
+    BaseLLMProvider,
+    ProviderAuthError,
+    ToolCall,
+)
+from vaquita.infrastructure.gemini import GeminiProvider
+from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
+from vaquita.tools.base import BaseTool
+from vaquita.tools.bash import BashTool
+
+
+def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
+    selected = (provider_name or os.getenv("VAQUITA_PROVIDER") or "gemini").lower()
+
+    if selected == "groq":
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ProviderAuthError(
+                "GROQ_API_KEY is not configured.\n"
+                "Please add GROQ_API_KEY to your .env file or environment variables."
+            )
+        model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+        base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+        return OpenAICompatibleProvider(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+
+    if selected == "nvidia":
+        api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ProviderAuthError(
+                "NVIDIA_API_KEY is not configured.\n"
+                "Please add NVIDIA_API_KEY to your .env file or environment variables."
+            )
+        model = os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+        base_url = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+        return OpenAICompatibleProvider(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+
+    if selected == "openai_compat":
+        return OpenAICompatibleProvider(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        )
+
+    if selected == "gemini":
+        return GeminiProvider()
+
+    raise ValueError(f"Unknown provider '{selected}'. Supported: groq, nvidia, gemini, openai_compat.")
+
+
+def create_agent(
+    provider_name: str | None = None,
+    provider: BaseLLMProvider | None = None,
+    tools: list[BaseTool] | None = None,
+    auto_approve: bool = False,
+    confirm_fn: Callable[[str], bool] | None = None,
+    on_tool_execute: Callable[[ToolCall], None] | None = None,
+) -> VaquitaAgent:
+    resolved_provider = provider or create_provider(provider_name=provider_name)
+    resolved_confirm = None if auto_approve else confirm_fn
+    resolved_tools = tools if tools is not None else [BashTool(confirm_fn=resolved_confirm)]
+    return VaquitaAgent(
+        provider=resolved_provider,
+        tools=resolved_tools,
+        on_tool_execute=on_tool_execute,
+    )

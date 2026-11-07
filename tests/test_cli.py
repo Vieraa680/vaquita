@@ -73,6 +73,18 @@ def test_main_direct_prompt_success(capsys: pytest.CaptureFixture[str]) -> None:
         assert "System is operational" in captured.out
 
 
+def test_main_direct_prompt_with_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_agent = MagicMock()
+    mock_agent.run.return_value = "Files listed"
+
+    with patch("vaquita.interface.cli.build_agent", return_value=mock_agent):
+        code = main(["ls", "-la", "/tmp"])
+        assert code == 0
+        mock_agent.run.assert_called_once_with("ls -la /tmp")
+        captured = capsys.readouterr()
+        assert "Files listed" in captured.out
+
+
 def test_main_direct_prompt_provider_error(capsys: pytest.CaptureFixture[str]) -> None:
     mock_agent = MagicMock()
     mock_agent.run.side_effect = ProviderError("API failure")
