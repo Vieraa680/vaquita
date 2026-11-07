@@ -25,7 +25,19 @@ def _log_tool_call(call: ToolCall) -> None:
         print(f"[{call.name}] {call.arguments}")
 
 
-def build_agent(provider_name: str | None = None) -> VaquitaAgent:
+def _confirm_command(command: str) -> bool:
+    try:
+        ans = input(f"Confirm execution of '{command}'? [y/N]: ").strip().lower()
+        return ans in ("y", "yes", "s", "si", "sí")
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return False
+
+
+def build_agent(
+    provider_name: str | None = None,
+    auto_approve: bool = False,
+) -> VaquitaAgent:
     selected = (provider_name or os.getenv("VAQUITA_PROVIDER") or "gemini").lower()
 
     provider: BaseLLMProvider
@@ -72,7 +84,8 @@ def build_agent(provider_name: str | None = None) -> VaquitaAgent:
     else:
         raise ValueError(f"Unknown provider '{selected}'. Supported: groq, nvidia, gemini, openai_compat.")
 
-    tools = [BashTool()]
+    confirm_fn = None if auto_approve else _confirm_command
+    tools = [BashTool(confirm_fn=confirm_fn)]
     return VaquitaAgent(provider=provider, tools=tools, on_tool_execute=_log_tool_call)
 
 
@@ -109,6 +122,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Virtual Assistant Query & Utility Interface for Terminal Automation",
     )
     parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Auto-approve modifying commands without interactive confirmation.",
+    )
+    parser.add_argument(
         "--provider",
         choices=["groq", "nvidia", "gemini", "openai_compat"],
         help="LLM provider to use (overrides VAQUITA_PROVIDER env var).",
@@ -122,7 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        agent = build_agent(provider_name=args.provider)
+        agent = build_agent(provider_name=args.provider, auto_approve=args.yes)
     except ProviderAuthError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

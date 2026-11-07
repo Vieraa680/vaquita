@@ -1,5 +1,7 @@
+from unittest.mock import MagicMock
+
 from vaquita.tools.base import BaseTool
-from vaquita.tools.bash import BashTool
+from vaquita.tools.bash import BashTool, is_mutating_command
 
 
 def test_bash_tool_satisfies_protocol() -> None:
@@ -73,3 +75,37 @@ def test_bash_tool_stderr_truncation() -> None:
     output = tool.execute(command=cmd)
     assert "exit code 1" in output
     assert "lines omitted to conserve tokens" in output
+
+
+def test_is_mutating_command() -> None:
+    assert not is_mutating_command("df -h")
+    assert not is_mutating_command("free -m")
+    assert not is_mutating_command("systemctl status nginx")
+    assert is_mutating_command("rm file.txt")
+    assert is_mutating_command("kill -9 1234")
+    assert is_mutating_command("systemctl restart nginx")
+    assert is_mutating_command("echo hello > out.txt")
+
+
+def test_bash_tool_confirm_approved() -> None:
+    mock_confirm = MagicMock(return_value=True)
+    tool = BashTool(confirm_fn=mock_confirm)
+    output = tool.execute(command="echo 'test' > /tmp/vaquita_test_write.txt && cat /tmp/vaquita_test_write.txt")
+    mock_confirm.assert_called_once()
+    assert "test" in output
+
+
+def test_bash_tool_confirm_rejected() -> None:
+    mock_confirm = MagicMock(return_value=False)
+    tool = BashTool(confirm_fn=mock_confirm)
+    output = tool.execute(command="rm file.txt")
+    mock_confirm.assert_called_once_with("rm file.txt")
+    assert "Execution cancelled by user" in output
+
+
+def test_bash_tool_readonly_skips_confirm() -> None:
+    mock_confirm = MagicMock()
+    tool = BashTool(confirm_fn=mock_confirm)
+    output = tool.execute(command="echo 'safe inspection'")
+    mock_confirm.assert_not_called()
+    assert output == "safe inspection"

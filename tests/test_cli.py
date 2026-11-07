@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vaquita.core.providers import ProviderAuthError, ProviderError, ToolCall
-from vaquita.interface.cli import _log_tool_call, build_agent, main
+from vaquita.interface.cli import _confirm_command, _log_tool_call, build_agent, main
 
 
 def test_log_tool_call(capsys: pytest.CaptureFixture[str]) -> None:
@@ -27,8 +27,32 @@ def test_main_provider_flag(capsys: pytest.CaptureFixture[str]) -> None:
     with patch("vaquita.interface.cli.build_agent", return_value=mock_agent) as mock_builder:
         code = main(["--provider", "groq", "test prompt"])
         assert code == 0
-        mock_builder.assert_called_once_with(provider_name="groq")
+        mock_builder.assert_called_once_with(provider_name="groq", auto_approve=False)
         assert "Fast response" in capsys.readouterr().out
+
+
+def test_main_yes_flag() -> None:
+    mock_agent = MagicMock()
+    mock_agent.run.return_value = "Done"
+
+    with patch("vaquita.interface.cli.build_agent", return_value=mock_agent) as mock_builder:
+        code = main(["-y", "do action"])
+        assert code == 0
+        mock_builder.assert_called_once_with(provider_name=None, auto_approve=True)
+
+
+def test_confirm_command_input() -> None:
+    with patch("builtins.input", side_effect=["y", "si", "sí", "n", ""]):
+        assert _confirm_command("rm a")
+        assert _confirm_command("rm b")
+        assert _confirm_command("rm c")
+        assert not _confirm_command("rm d")
+        assert not _confirm_command("rm e")
+
+
+def test_confirm_command_interrupt() -> None:
+    with patch("builtins.input", side_effect=KeyboardInterrupt):
+        assert not _confirm_command("rm f")
 
 
 def test_main_direct_prompt_success(capsys: pytest.CaptureFixture[str]) -> None:

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import re
 from typing import Any
 
@@ -14,6 +15,26 @@ _BLOCKED_PATTERNS = [
     r"\b(shutdown|reboot|poweroff|init\s+0)\b",
 ]
 
+_MUTATING_PATTERNS = [
+    r"\b(rm|rmdir|unlink)\b",
+    r"\b(kill|pkill|killall)\b",
+    r"\bsystemctl\s+(start|stop|restart|reload|enable|disable|mask|unmask)\b",
+    r"\b(pacman|yay|paru|apt|apt-get|dnf|yum|zypper)\b",
+    r"\b(chmod|chown|chgrp)\b",
+    r"\b(mv|cp)\b",
+    r"\b(useradd|userdel|usermod|groupadd|groupdel)\b",
+    r"\b(iptables|ufw|firewall-cmd)\b",
+    r"(?:^|[^<])>(?:[^>]|$)",
+    r">>",
+    r"\bsed\s+.*-i\b",
+    r"\btruncate\b",
+]
+
+
+def is_mutating_command(command: str) -> bool:
+    normalized = command.strip()
+    return any(re.search(p, normalized) for p in _MUTATING_PATTERNS)
+
 
 class BashTool(BaseTool):
     def __init__(
@@ -21,10 +42,12 @@ class BashTool(BaseTool):
         timeout: float = 30.0,
         max_lines: int = 60,
         max_chars: int = 3000,
+        confirm_fn: Callable[[str], bool] | None = None,
     ) -> None:
         self.timeout = timeout
         self.max_lines = max_lines
         self.max_chars = max_chars
+        self.confirm_fn = confirm_fn
 
     @property
     def definition(self) -> ToolDefinition:
@@ -79,6 +102,11 @@ class BashTool(BaseTool):
 
         if self._is_destructive(command):
             return "Execution blocked: Potentially destructive host command detected."
+
+        if self.confirm_fn and is_mutating_command(command):
+            approved = self.confirm_fn(command)
+            if not approved:
+                return f"Execution cancelled by user for command: '{command}'"
 
         result = execute_command(command, timeout=self.timeout)
 
