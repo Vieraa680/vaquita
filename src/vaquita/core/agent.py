@@ -50,21 +50,34 @@ class VaquitaAgent:
     def _trim_history(self) -> None:
         has_system = bool(self._history and self._history[0].role == "system")
         system_offset = 1 if has_system else 0
-        non_system_messages = self._history[system_offset:]
+        non_system = self._history[system_offset:]
 
-        if len(non_system_messages) > self._max_history_messages:
-            kept = non_system_messages[-self._max_history_messages:]
-            if has_system:
-                self._history = [self._history[0]] + kept
+        if len(non_system) <= self._max_history_messages:
+            return
+
+        cut_idx = len(non_system) - self._max_history_messages
+        while cut_idx < len(non_system) and non_system[cut_idx].role != "user":
+            cut_idx += 1
+
+        kept = non_system[cut_idx:]
+        if not kept:
+            user_indices = [i for i, m in enumerate(non_system) if m.role == "user"]
+            if user_indices:
+                kept = non_system[user_indices[-1]:]
             else:
-                self._history = kept
+                kept = non_system[-1:]
+
+        if has_system:
+            self._history = [self._history[0]] + kept
+        else:
+            self._history = kept
 
     def run(self, user_input: str) -> str:
         self._history.append(Message(role="user", content=user_input))
         self._trim_history()
         tool_defs = self.tool_definitions or None
 
-        for _ in range(self._max_iterations):
+        for iteration in range(self._max_iterations):
             response = self._provider.generate(list(self._history), tools=tool_defs)
 
             if not response.tool_calls:
@@ -78,16 +91,25 @@ class VaquitaAgent:
                 self._trim_history()
                 return response.text or ""
 
+            normalized_calls = [
+                ToolCall(
+                    name=tc.name,
+                    arguments=tc.arguments,
+                    call_id=tc.call_id or f"call_{iteration}_{idx}",
+                )
+                for idx, tc in enumerate(response.tool_calls)
+            ]
+
             self._history.append(
                 Message(
                     role="model",
                     content=response.text,
-                    tool_calls=response.tool_calls,
+                    tool_calls=normalized_calls,
                     raw_content=response.raw_content,
                 )
             )
 
-            for call in response.tool_calls:
+            for call in normalized_calls:
                 if self._on_tool_execute:
                     self._on_tool_execute(call)
 

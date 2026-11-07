@@ -1,7 +1,12 @@
 from unittest.mock import MagicMock
 
 from vaquita.core.agent import VaquitaAgent
-from vaquita.core.providers import LLMResponse, ToolCall, ToolDefinition
+from vaquita.core.providers import (
+    LLMResponse,
+    Message,
+    ToolCall,
+    ToolDefinition,
+)
 from vaquita.tools.base import BaseTool
 
 
@@ -127,4 +132,27 @@ def test_agent_history_trimming() -> None:
     assert len(agent.history) == 5
     assert agent.history[0].role == "system"
     assert agent.history[-1].role == "model"
+
+
+def test_agent_trimming_preserves_atomic_user_turn() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="answer")
+
+    agent = VaquitaAgent(provider=mock_provider, max_history_messages=4)
+    agent._history.extend(
+        [
+            Message(role="user", content="first query"),
+            Message(role="model", tool_calls=[ToolCall(name="bash", arguments={"command": "ls"})]),
+            Message(role="tool", name="bash", content="files"),
+            Message(role="model", content="files listed"),
+            Message(role="user", content="second query"),
+            Message(role="model", content="answer 2"),
+        ]
+    )
+
+    agent._trim_history()
+
+    assert agent.history[0].role == "system"
+    assert agent.history[1].role == "user"
+    assert agent.history[1].content == "second query"
 
