@@ -20,7 +20,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self,
         api_key: str | None = None,
         base_url: str = "https://api.groq.com/openai/v1",
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "qwen/qwen3.8-27b",
         timeout: float = 30.0,
     ) -> None:
         resolved_key = api_key or os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")

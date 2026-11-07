@@ -36,7 +36,7 @@ def build_agent(provider_name: str | None = None) -> VaquitaAgent:
                 "GROQ_API_KEY is not configured.\n"
                 "Please add GROQ_API_KEY to your .env file or environment variables."
             )
-        model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+        model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
         base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
         provider = OpenAICompatibleProvider(
             api_key=api_key,
