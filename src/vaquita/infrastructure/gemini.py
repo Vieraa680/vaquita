@@ -18,14 +18,14 @@ class GeminiProvider:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "gemini-2.5-flash",
+        model: str | None = None,
         client: genai.Client | None = None,
     ) -> None:
         resolved_key = api_key or os.getenv("GEMINI_API_KEY")
         if not resolved_key and client is None:
             raise ProviderAuthError("GEMINI_API_KEY environment variable is not set.")
 
-        self.model = model
+        self.model: str = model or os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
         self._client = client or genai.Client(api_key=resolved_key)
 
     def generate(

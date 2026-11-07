@@ -17,6 +17,14 @@ def test_gemini_provider_satisfies_protocol() -> None:
     mock_client = MagicMock()
     provider = GeminiProvider(client=mock_client)
     assert isinstance(provider, BaseLLMProvider)
+    assert provider.model == "gemini-3.8-flash"
+
+
+def test_gemini_provider_custom_model_env() -> None:
+    mock_client = MagicMock()
+    with patch.dict("os.environ", {"GEMINI_MODEL": "custom-model"}):
+        provider = GeminiProvider(client=mock_client)
+        assert provider.model == "custom-model"
 
 
 def test_gemini_provider_missing_key_raises_auth_error() -> None:
