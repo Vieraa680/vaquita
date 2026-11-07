@@ -53,6 +53,7 @@ class VaquitaAgent:
                     role="model",
                     content=response.text,
                     tool_calls=response.tool_calls,
+                    raw_content=response.raw_content,
                 )
             )
 

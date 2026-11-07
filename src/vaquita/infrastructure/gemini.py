@@ -25,8 +25,11 @@ class GeminiProvider:
         if not resolved_key and client is None:
             raise ProviderAuthError("GEMINI_API_KEY environment variable is not set.")
 
-        self.model: str = model or os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
-        self._client = client or genai.Client(api_key=resolved_key)
+        self.model: str = model or os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite"
+        self._client = client or genai.Client(
+            api_key=resolved_key,
+            http_options={"timeout": 30000},
+        )
 
     def generate(
         self,
@@ -39,6 +42,10 @@ class GeminiProvider:
         for msg in messages:
             if msg.role == "system":
                 system_instruction = msg.content
+                continue
+
+            if msg.role in ("model", "assistant") and msg.raw_content is not None:
+                contents.append(msg.raw_content)
                 continue
 
             parts: list[types.Part] = []
@@ -66,7 +73,7 @@ class GeminiProvider:
                         response={"output": msg.content or ""},
                     )
                 )
-                contents.append(types.Content(role="tool", parts=parts))
+                contents.append(types.Content(role="user", parts=parts))
 
         config_params: dict[str, Any] = {}
         if system_instruction:
@@ -108,4 +115,10 @@ class GeminiProvider:
                     )
                 )
 
-        return LLMResponse(text=response.text, tool_calls=tool_calls)
+        text = response.text if not tool_calls else None
+
+        raw_content = None
+        if response.candidates and response.candidates[0].content:
+            raw_content = response.candidates[0].content
+
+        return LLMResponse(text=text, tool_calls=tool_calls, raw_content=raw_content)

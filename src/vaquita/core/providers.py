@@ -23,12 +23,14 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
     name: str | None = None
+    raw_content: Any = None
 
 
 @dataclass(frozen=True)
 class LLMResponse:
     text: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    raw_content: Any = None
 
 
 class ProviderError(Exception):

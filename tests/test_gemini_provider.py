@@ -17,7 +17,7 @@ def test_gemini_provider_satisfies_protocol() -> None:
     mock_client = MagicMock()
     provider = GeminiProvider(client=mock_client)
     assert isinstance(provider, BaseLLMProvider)
-    assert provider.model == "gemini-3.8-flash"
+    assert provider.model == "gemini-3.1-flash-lite"
 
 
 def test_gemini_provider_custom_model_env() -> None:
