@@ -16,8 +16,15 @@ _BLOCKED_PATTERNS = [
 
 
 class BashTool(BaseTool):
-    def __init__(self, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        timeout: float = 30.0,
+        max_lines: int = 60,
+        max_chars: int = 3000,
+    ) -> None:
         self.timeout = timeout
+        self.max_lines = max_lines
+        self.max_chars = max_chars
 
     @property
     def definition(self) -> ToolDefinition:
@@ -43,6 +50,29 @@ class BashTool(BaseTool):
                 return True
         return False
 
+    def _truncate(self, text: str) -> str:
+        clean_text = text.strip()
+        if not clean_text:
+            return clean_text
+
+        lines = clean_text.splitlines()
+        if len(lines) > self.max_lines:
+            head_count = max(1, int(self.max_lines * 0.6))
+            tail_count = max(1, self.max_lines - head_count)
+            omitted = len(lines) - (head_count + tail_count)
+            if omitted > 0:
+                head = lines[:head_count]
+                tail = lines[-tail_count:]
+                notice = f"[... {omitted} lines omitted to conserve tokens ...]"
+                clean_text = "\n".join(head + [notice] + tail)
+
+        if len(clean_text) > self.max_chars:
+            half = max(10, (self.max_chars - 60) // 2)
+            notice = "\n[... content truncated to conserve tokens ...]\n"
+            clean_text = clean_text[:half] + notice + clean_text[-half:]
+
+        return clean_text
+
     def execute(self, command: str = "", **kwargs: Any) -> str:
         if not command.strip():
             return "Error: Empty command provided."
@@ -53,16 +83,19 @@ class BashTool(BaseTool):
         result = execute_command(command, timeout=self.timeout)
 
         if result.timed_out:
-            return f"Command timed out after {self.timeout}s: {result.stderr}"
+            stderr_msg = self._truncate(result.stderr)
+            return f"Command timed out after {self.timeout}s: {stderr_msg}"
+
+        stdout_clean = self._truncate(result.stdout)
+        stderr_clean = self._truncate(result.stderr)
 
         if result.exit_code != 0:
             error_details = []
-            if result.stderr.strip():
-                error_details.append(f"stderr: {result.stderr.strip()}")
-            if result.stdout.strip():
-                error_details.append(f"stdout: {result.stdout.strip()}")
+            if stderr_clean:
+                error_details.append(f"stderr: {stderr_clean}")
+            if stdout_clean:
+                error_details.append(f"stdout: {stdout_clean}")
             msg = "\n".join(error_details) or "no error output provided"
             return f"Command failed with exit code {result.exit_code}:\n{msg}"
 
-        output = result.stdout.strip()
-        return output if output else "Command executed successfully with no output."
+        return stdout_clean if stdout_clean else "Command executed successfully with no output."

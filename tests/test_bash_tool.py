@@ -50,3 +50,26 @@ def test_bash_tool_timeout() -> None:
     tool = BashTool(timeout=0.05)
     output = tool.execute(command="sleep 1")
     assert "timed out" in output
+
+
+def test_bash_tool_line_truncation() -> None:
+    tool = BashTool(max_lines=20)
+    output = tool.execute(command="python3 -c 'for i in range(1, 101): print(f\"item_{i}\")'")
+    assert "item_1" in output
+    assert "item_100" in output
+    assert "lines omitted to conserve tokens" in output
+
+
+def test_bash_tool_char_truncation() -> None:
+    tool = BashTool(max_chars=200)
+    output = tool.execute(command="python3 -c 'print(\"X\" * 1000)'")
+    assert "content truncated to conserve tokens" in output
+    assert len(output) < 300
+
+
+def test_bash_tool_stderr_truncation() -> None:
+    tool = BashTool(max_lines=20)
+    cmd = "python3 -c 'import sys; [sys.stderr.write(f\"err_{i}\\n\") for i in range(1, 101)]; sys.exit(1)'"
+    output = tool.execute(command=cmd)
+    assert "exit code 1" in output
+    assert "lines omitted to conserve tokens" in output
