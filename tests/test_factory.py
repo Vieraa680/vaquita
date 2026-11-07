@@ -45,3 +45,15 @@ def test_create_agent_with_custom_provider() -> None:
     assert agent._provider is mock_provider
     assert len(agent.tool_definitions) == 1
     assert agent.tool_definitions[0].name == "bash"
+    assert agent.history[0].content is not None
+    assert "System Environment:" in agent.history[0].content
+
+
+def test_create_agent_with_explicit_system_prompt() -> None:
+    mock_provider = MagicMock()
+    custom_prompt = "Custom system instructions."
+    agent = create_agent(
+        provider=mock_provider,
+        system_prompt=custom_prompt,
+    )
+    assert agent.history[0].content == custom_prompt

@@ -1,13 +1,14 @@
 from collections.abc import Callable
 import os
 
-from vaquita.core.agent import VaquitaAgent
+from vaquita.core.agent import VaquitaAgent, build_system_prompt
 from vaquita.core.providers import (
     BaseLLMProvider,
     ProviderAuthError,
     ToolCall,
 )
 from vaquita.infrastructure.gemini import GeminiProvider
+from vaquita.infrastructure.host import detect_host
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
 from vaquita.tools.base import BaseTool
 from vaquita.tools.bash import BashTool
@@ -66,12 +67,19 @@ def create_agent(
     auto_approve: bool = False,
     confirm_fn: Callable[[str], bool] | None = None,
     on_tool_execute: Callable[[ToolCall], None] | None = None,
+    system_prompt: str | None = None,
 ) -> VaquitaAgent:
     resolved_provider = provider or create_provider(provider_name=provider_name)
     resolved_confirm = None if auto_approve else confirm_fn
     resolved_tools = tools if tools is not None else [BashTool(confirm_fn=resolved_confirm)]
+    resolved_system_prompt = (
+        system_prompt
+        if system_prompt is not None
+        else build_system_prompt(detect_host().format_context())
+    )
     return VaquitaAgent(
         provider=resolved_provider,
         tools=resolved_tools,
+        system_prompt=resolved_system_prompt,
         on_tool_execute=on_tool_execute,
     )

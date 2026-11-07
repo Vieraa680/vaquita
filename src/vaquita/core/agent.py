@@ -15,6 +15,12 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+def build_system_prompt(host_context: str | None = None) -> str:
+    if host_context and host_context.strip():
+        return f"{DEFAULT_SYSTEM_PROMPT}\n\n{host_context.strip()}"
+    return DEFAULT_SYSTEM_PROMPT
+
+
 class VaquitaAgent:
     def __init__(
         self,

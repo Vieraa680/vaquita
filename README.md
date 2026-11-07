@@ -14,7 +14,7 @@ Vaquita follows a strict layered architecture with clear separation of concerns:
 - **Core Layer (`src/vaquita/core`)**: Agent orchestration loop, multi-turn history trimming, tool execution flow, and provider abstractions.
 - **Factory (`src/vaquita/factory.py`)**: Composition root for provider instantiation and agent assembly.
 - **Tools Layer (`src/vaquita/tools`)**: Type-hinted tools with execution guardrails, token-conserving output truncation, and mutating command confirmations.
-- **Infrastructure Layer (`src/vaquita/infrastructure`)**: Shell subprocess execution with process group management, and LLM provider adapters.
+- **Infrastructure Layer (`src/vaquita/infrastructure`)**: Shell subprocess execution with process group management, host environment inspection, and LLM provider adapters.
 
 ---
 
