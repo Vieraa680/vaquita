@@ -2,7 +2,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vaquita.core.providers import ProviderAuthError, ProviderError, ToolCall
-from vaquita.interface.cli import _confirm_command, _log_tool_call, build_agent, main
+from vaquita.interface.cli import (
+    _confirm_command,
+    _log_tool_call,
+    build_agent,
+    load_configuration,
+    main,
+)
 
 
 def test_log_tool_call(capsys: pytest.CaptureFixture[str]) -> None:
@@ -130,3 +136,9 @@ def test_main_interactive_clear_command(capsys: pytest.CaptureFixture[str]) -> N
         mock_agent.reset.assert_called_once()
         captured = capsys.readouterr()
         assert "Session history cleared." in captured.out
+
+
+def test_load_configuration_calls() -> None:
+    with patch("vaquita.interface.cli.load_dotenv") as mock_load:
+        load_configuration()
+        assert mock_load.call_count >= 1

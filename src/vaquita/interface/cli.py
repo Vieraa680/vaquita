@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 import sys
 from collections.abc import Sequence
 
@@ -114,8 +115,20 @@ def run_interactive(agent: VaquitaAgent) -> None:
             print(f"Error: {exc}", file=sys.stderr)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def load_configuration() -> None:
     load_dotenv()
+
+    user_config = Path.home() / ".config" / "vaquita" / ".env"
+    if user_config.is_file():
+        load_dotenv(user_config)
+
+    repo_env = Path(__file__).resolve().parent.parent.parent.parent / ".env"
+    if repo_env.is_file():
+        load_dotenv(repo_env)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    load_configuration()
 
     parser = argparse.ArgumentParser(
         prog="vaquita",
