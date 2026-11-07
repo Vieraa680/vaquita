@@ -98,6 +98,37 @@ def test_gemini_provider_handles_system_and_tool_messages() -> None:
     assert len(called_kwargs["contents"]) == 3
 
 
+def test_gemini_provider_groups_parallel_tool_responses() -> None:
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = "Summary"
+    mock_response.function_calls = None
+    mock_client.models.generate_content.return_value = mock_response
+
+    provider = GeminiProvider(client=mock_client)
+    messages = [
+        Message(role="user", content="check system"),
+        Message(
+            role="model",
+            tool_calls=[
+                ToolCall(name="bash", arguments={"command": "df -h"}, call_id="c1"),
+                ToolCall(name="bash", arguments={"command": "free -m"}, call_id="c2"),
+            ],
+        ),
+        Message(role="tool", name="bash", content="disk ok", tool_call_id="c1"),
+        Message(role="tool", name="bash", content="ram ok", tool_call_id="c2"),
+    ]
+    response = provider.generate(messages)
+
+    assert response.text == "Summary"
+    contents = mock_client.models.generate_content.call_args.kwargs["contents"]
+    assert len(contents) == 3
+    assert contents[0].role == "user"
+    assert contents[1].role == "model"
+    assert contents[2].role == "user"
+    assert len(contents[2].parts) == 2
+
+
 def test_gemini_provider_wraps_api_error() -> None:
     mock_client = MagicMock()
     mock_client.models.generate_content.side_effect = RuntimeError("Network timeout")

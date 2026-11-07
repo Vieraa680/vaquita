@@ -120,11 +120,15 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         except ValueError as exc:
             raise ProviderError(f"Invalid JSON response: {response.text}") from exc
 
-        choice = data.get("choices", [{}])[0].get("message", {})
+        choices = data.get("choices")
+        if not choices:
+            raise ProviderError(f"API returned no choices: {response.text}")
+
+        choice = choices[0].get("message", {})
         text_content = choice.get("content")
 
         tool_calls: list[ToolCall] = []
-        for raw_call in choice.get("tool_calls", []):
+        for i, raw_call in enumerate(choice.get("tool_calls", [])):
             function_data = raw_call.get("function", {})
             call_name = function_data.get("name", "")
             raw_arguments = function_data.get("arguments", "{}")
@@ -140,7 +144,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 ToolCall(
                     name=call_name,
                     arguments=arguments,
-                    call_id=raw_call.get("id"),
+                    call_id=raw_call.get("id") or f"call_{i}",
                 )
             )
 

@@ -5,6 +5,7 @@ from google import genai
 from google.genai import errors, types
 
 from vaquita.core.providers import (
+    BaseLLMProvider,
     LLMResponse,
     Message,
     ProviderAuthError,
@@ -14,7 +15,7 @@ from vaquita.core.providers import (
 )
 
 
-class GeminiProvider:
+class GeminiProvider(BaseLLMProvider):
     def __init__(
         self,
         api_key: str | None = None,
@@ -67,13 +68,19 @@ class GeminiProvider:
                 contents.append(types.Content(role="model", parts=parts))
 
             elif msg.role == "tool":
-                parts.append(
-                    types.Part.from_function_response(
-                        name=msg.name or "tool",
-                        response={"output": msg.content or ""},
-                    )
+                part = types.Part.from_function_response(
+                    name=msg.name or "tool",
+                    response={"output": msg.content or ""},
                 )
-                contents.append(types.Content(role="user", parts=parts))
+                if (
+                    contents
+                    and contents[-1].role == "user"
+                    and contents[-1].parts
+                    and contents[-1].parts[0].function_response is not None
+                ):
+                    contents[-1].parts.append(part)
+                else:
+                    contents.append(types.Content(role="user", parts=[part]))
 
         config_params: dict[str, Any] = {}
         if system_instruction:

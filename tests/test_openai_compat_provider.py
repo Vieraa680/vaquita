@@ -141,6 +141,18 @@ def test_provider_server_error_status_code() -> None:
             provider.generate([Message(role="user", content="hello")])
 
 
+def test_provider_empty_choices_raises_provider_error() -> None:
+    provider = OpenAICompatibleProvider(api_key="test_key")
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"choices": []}
+    mock_response.text = '{"choices": []}'
+
+    with patch("requests.post", return_value=mock_response):
+        with pytest.raises(ProviderError, match="no choices"):
+            provider.generate([Message(role="user", content="hello")])
+
+
 def test_provider_network_exception() -> None:
     provider = OpenAICompatibleProvider(api_key="test_key")
 
