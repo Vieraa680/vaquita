@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vaquita"
+version = "0.1.0"
+description = "Virtual Assistant Query & Utility Interface for Terminal Automation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "mypy>=1.10.0",
+]
+
+[project.scripts]
+vaquita = "vaquita.interface.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vaquita"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
