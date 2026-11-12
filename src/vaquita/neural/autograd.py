@@ -64,12 +64,40 @@ class Value:
     def __rmul__(self, other: float) -> "Value":
         return self * other
 
+    def __truediv__(self, other: "Value | float") -> "Value":
+        return self * (self._ensure_value(other) ** -1)
+
+    def __rtruediv__(self, other: float) -> "Value":
+        return self._ensure_value(other) * (self**-1)
+
     def __pow__(self, exponent: int | float) -> "Value":
         out = Value(self.data**exponent, (self,), f"**{exponent}")
 
         def _backward() -> None:
             local_grad = 0.0 if exponent == 0 else exponent * (self.data ** (exponent - 1))
             self.grad += local_grad * out.grad
+
+        out._backward = _backward
+        return out
+
+    def exp(self) -> "Value":
+        value = math.exp(self.data)
+        out = Value(value, (self,), "exp")
+
+        def _backward() -> None:
+            self.grad += value * out.grad
+
+        out._backward = _backward
+        return out
+
+    def log(self) -> "Value":
+        if self.data <= 0.0:
+            raise ValueError("log input must be strictly positive.")
+
+        out = Value(math.log(self.data), (self,), "log")
+
+        def _backward() -> None:
+            self.grad += (1.0 / self.data) * out.grad
 
         out._backward = _backward
         return out

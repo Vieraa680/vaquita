@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import math
 from random import Random
 
 from vaquita.neural.autograd import Value
@@ -18,10 +19,11 @@ class NeuralUnit:
             raise ValueError("num_inputs must be greater than zero.")
 
         generator = rng if rng is not None else Random(seed)
+        scale = 1.0 / math.sqrt(num_inputs)
         self.weights: list[Value] = [
-            Value(generator.uniform(-1.0, 1.0)) for _ in range(num_inputs)
+            Value(generator.uniform(-scale, scale)) for _ in range(num_inputs)
         ]
-        self.bias = Value(generator.uniform(-1.0, 1.0))
+        self.bias = Value(0.0)
         self.nonlin = nonlin
 
     def __call__(self, inputs: Sequence[float | Value]) -> Value:
@@ -32,6 +34,8 @@ class NeuralUnit:
 
         activation = self.bias
         for weight, value in zip(self.weights, inputs, strict=True):
+            if isinstance(value, (int, float)) and value == 0.0:
+                continue
             activation = activation + weight * value
         return activation.tanh() if self.nonlin else activation
 
@@ -94,11 +98,8 @@ class MLP:
         ]
 
     def __call__(self, inputs: Sequence[float | Value]) -> list[Value]:
-        current: list[Value] = [
-            value if isinstance(value, Value) else Value(float(value))
-            for value in inputs
-        ]
-        for layer in self.layers:
+        current = self.layers[0](inputs)
+        for layer in self.layers[1:]:
             current = layer(current)
         return current
 

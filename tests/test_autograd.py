@@ -65,3 +65,16 @@ def test_value_subtraction_and_reverse_operators() -> None:
     assert out.data == pytest.approx(19.0)
     assert a.grad == pytest.approx(-3.0)
     assert b.grad == pytest.approx(-1.0)
+
+
+def test_value_division_exp_and_log() -> None:
+    x = Value(2.0)
+    # y = log(exp(x) / 2.0) = x - log(2) -> dy/dx = 1
+    y = (x.exp() / 2.0).log()
+    y.backward()
+
+    assert y.data == pytest.approx(2.0 - pytest.importorskip("math").log(2.0))
+    assert x.grad == pytest.approx(1.0)
+
+    with pytest.raises(ValueError, match="strictly positive"):
+        Value(0.0).log()
