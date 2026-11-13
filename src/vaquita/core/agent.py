@@ -16,10 +16,16 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
-def build_system_prompt(host_context: str | None = None) -> str:
+def build_system_prompt(
+    host_context: str | None = None,
+    memory_context: str | None = None,
+) -> str:
+    parts = [DEFAULT_SYSTEM_PROMPT]
     if host_context and host_context.strip():
-        return f"{DEFAULT_SYSTEM_PROMPT}\n\n{host_context.strip()}"
-    return DEFAULT_SYSTEM_PROMPT
+        parts.append(host_context.strip())
+    if memory_context and memory_context.strip():
+        parts.append(memory_context.strip())
+    return "\n\n".join(parts)
 
 
 class VaquitaAgent:

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 import os
+from pathlib import Path
 
 from vaquita.core.agent import VaquitaAgent, build_system_prompt
 from vaquita.core.providers import (
@@ -11,9 +12,20 @@ from vaquita.core.router import BaseIntentRouter, IntentRoute
 from vaquita.infrastructure.gemini import GeminiProvider
 from vaquita.infrastructure.host import detect_host
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
+from vaquita.memory import (
+    BaseMemory,
+    BaseProfileStore,
+    EpisodicMemoryStore,
+    UserProfileStore,
+)
 from vaquita.neural.router import NeuralIntentRouter
 from vaquita.tools.base import BaseTool
 from vaquita.tools.bash import BashTool
+from vaquita.tools.memory import (
+    RecallMemoryTool,
+    RememberFactTool,
+    SaveEpisodeTool,
+)
 
 
 def create_router(
@@ -26,6 +38,14 @@ def create_router(
         dataset_path=dataset_path,
         auto_train=auto_train,
     )
+
+
+def create_profile_store(path: Path | str | None = None) -> BaseProfileStore:
+    return UserProfileStore(path=path)
+
+
+def create_episodic_memory(db_path: Path | str | None = None) -> BaseMemory:
+    return EpisodicMemoryStore(db_path=db_path)
 
 
 def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
@@ -85,15 +105,44 @@ def create_agent(
     router: BaseIntentRouter | None = None,
     enable_router: bool = False,
     on_intent: Callable[[IntentRoute], None] | None = None,
+    profile_store: BaseProfileStore | None = None,
+    episodic_memory: BaseMemory | None = None,
+    enable_memory: bool = False,
 ) -> VaquitaAgent:
     resolved_provider = provider or create_provider(provider_name=provider_name)
     resolved_confirm = None if auto_approve else confirm_fn
-    resolved_tools = tools if tools is not None else [BashTool(confirm_fn=resolved_confirm)]
-    resolved_system_prompt = (
-        system_prompt
-        if system_prompt is not None
-        else build_system_prompt(detect_host().format_context())
-    )
+
+    resolved_profile = profile_store
+    resolved_episodic = episodic_memory
+    if enable_memory:
+        if resolved_profile is None:
+            resolved_profile = create_profile_store()
+        if resolved_episodic is None:
+            resolved_episodic = create_episodic_memory()
+
+    if tools is not None:
+        resolved_tools = list(tools)
+    else:
+        resolved_tools = [BashTool(confirm_fn=resolved_confirm)]
+        if resolved_profile is not None:
+            resolved_tools.append(RememberFactTool(resolved_profile))
+        if resolved_episodic is not None:
+            resolved_tools.extend(
+                [
+                    SaveEpisodeTool(resolved_episodic),
+                    RecallMemoryTool(resolved_episodic),
+                ]
+            )
+
+    if system_prompt is not None:
+        resolved_system_prompt = system_prompt
+    else:
+        memory_ctx = resolved_profile.format_context() if resolved_profile else None
+        resolved_system_prompt = build_system_prompt(
+            detect_host().format_context(),
+            memory_context=memory_ctx,
+        )
+
     resolved_router = router
     if resolved_router is None and enable_router:
         resolved_router = create_router()

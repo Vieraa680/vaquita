@@ -1,9 +1,17 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 
 from vaquita.core.providers import BaseLLMProvider, ProviderAuthError
 from vaquita.core.router import BaseIntentRouter
-from vaquita.factory import create_agent, create_provider, create_router
+from vaquita.factory import (
+    create_agent,
+    create_episodic_memory,
+    create_profile_store,
+    create_provider,
+    create_router,
+)
+from vaquita.memory import BaseMemory, BaseProfileStore
 from vaquita.infrastructure.gemini import GeminiProvider
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
 
@@ -96,3 +104,25 @@ def test_create_agent_with_router_options() -> None:
         )
         assert agent_enabled._router is mock_created
         mock_create_router.assert_called_once()
+
+
+def test_create_memory_factories_and_agent_injection(tmp_path: Path) -> None:
+    profile = create_profile_store(path=tmp_path / "profile.json")
+    assert isinstance(profile, BaseProfileStore)
+
+    episodic = create_episodic_memory(db_path=tmp_path / "memory.db")
+    assert isinstance(episodic, BaseMemory)
+
+    mock_provider = MagicMock()
+    agent = create_agent(
+        provider=mock_provider,
+        profile_store=profile,
+        episodic_memory=episodic,
+        enable_memory=True,
+    )
+
+    tool_names = [tool.name for tool in agent.tool_definitions]
+    assert "bash" in tool_names
+    assert "remember_fact" in tool_names
+    assert "save_episode" in tool_names
+    assert "recall_memory" in tool_names

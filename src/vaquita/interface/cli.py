@@ -41,6 +41,7 @@ def build_agent(
     provider_name: str | None = None,
     auto_approve: bool = False,
     enable_router: bool = True,
+    enable_memory: bool = True,
 ) -> VaquitaAgent:
     confirm_fn = None if auto_approve else _confirm_command
     return create_agent(
@@ -49,6 +50,7 @@ def build_agent(
         on_tool_execute=_log_tool_call,
         enable_router=enable_router,
         on_intent=_log_intent,
+        enable_memory=enable_memory,
     )
 
 
@@ -114,6 +116,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Enable local neural intent routing (default: enabled).",
     )
     parser.add_argument(
+        "--memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable persistent user memory (default: enabled).",
+    )
+    parser.add_argument(
         "prompt",
         nargs="*",
         help="Prompt to execute directly. If omitted, starts interactive mode.",
@@ -126,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             provider_name=args.provider,
             auto_approve=args.yes,
             enable_router=args.router,
+            enable_memory=args.memory,
         )
     except ProviderAuthError as exc:
         print(f"Error: {exc}", file=sys.stderr)

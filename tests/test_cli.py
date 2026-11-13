@@ -49,6 +49,7 @@ def test_main_provider_flag(capsys: pytest.CaptureFixture[str]) -> None:
             provider_name="groq",
             auto_approve=False,
             enable_router=True,
+            enable_memory=True,
         )
         assert "Fast response" in capsys.readouterr().out
 
@@ -64,6 +65,7 @@ def test_main_yes_flag() -> None:
             provider_name=None,
             auto_approve=True,
             enable_router=True,
+            enable_memory=True,
         )
 
 
@@ -78,6 +80,22 @@ def test_main_no_router_flag() -> None:
             provider_name=None,
             auto_approve=False,
             enable_router=False,
+            enable_memory=True,
+        )
+
+
+def test_main_no_memory_flag() -> None:
+    mock_agent = MagicMock()
+    mock_agent.run.return_value = "Done"
+
+    with patch("vaquita.interface.cli.build_agent", return_value=mock_agent) as mock_builder:
+        code = main(["--no-memory", "do action"])
+        assert code == 0
+        mock_builder.assert_called_once_with(
+            provider_name=None,
+            auto_approve=False,
+            enable_router=True,
+            enable_memory=False,
         )
 
 
