@@ -22,6 +22,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         base_url: str = "https://api.groq.com/openai/v1",
         model: str = "qwen/qwen3.8-27b",
         timeout: float = 30.0,
+        max_tokens: int = 800,
     ) -> None:
         resolved_key = api_key or os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not resolved_key:
@@ -31,6 +32,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        env_tokens = os.getenv("VAQUITA_MAX_TOKENS")
+        self.max_tokens = int(env_tokens) if env_tokens else max_tokens
 
     def generate(
         self,
@@ -81,6 +84,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": payload_messages,
+            "max_tokens": self.max_tokens,
         }
 
         if tools:
@@ -111,9 +115,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 f"Authentication failed ({response.status_code}): {response.text}"
             )
         if response.status_code >= 400:
-            raise ProviderError(
-                f"API request failed with status {response.status_code}: {response.text}"
-            )
+            error_msg = response.text
+            try:
+                err_json = response.json()
+                if isinstance(err_json, dict) and "error" in err_json:
+                    err_obj = err_json["error"]
+                    if isinstance(err_obj, dict) and "message" in err_obj:
+                        error_msg = str(err_obj["message"])
+            except Exception:
+                pass
+            raise ProviderError(f"API error ({response.status_code}): {error_msg}")
 
         try:
             data = response.json()
