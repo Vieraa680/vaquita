@@ -14,7 +14,7 @@ def test_user_profile_store_crud_and_persistence(tmp_path: Path) -> None:
 
     store.set_fact("name", "Alberto", section="profile")
     store.set_fact("editor", "nvim", section="preferences")
-    store.set_fact("vaquita", "Jarvis personal assistant", section="projects")
+    store.set_fact("vaquita", "All-purpose personal AI assistant", section="projects")
     store.set_fact("wifi_ssid", "HomeNet", section="facts")
 
     assert store.get_fact("name") == "Alberto"
@@ -25,7 +25,7 @@ def test_user_profile_store_crud_and_persistence(tmp_path: Path) -> None:
     assert "[User Memory & Profile Context]" in formatted
     assert "- name: Alberto" in formatted
     assert "- editor: nvim" in formatted
-    assert "- vaquita: Jarvis personal assistant" in formatted
+    assert "- vaquita: All-purpose personal AI assistant" in formatted
 
     # Re-open in a fresh instance to ensure atomic disk persistence
     reloaded = UserProfileStore(path=profile_path)

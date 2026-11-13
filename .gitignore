@@ -23,3 +23,9 @@ htmlcov/
 .env
 *.env
 !.env.example
+
+# Rust and desktop build artifacts
+target/
+**/target/
+node_modules/
+
