@@ -6,6 +6,7 @@ from vaquita.core.providers import (
     ToolCall,
     ToolDefinition,
 )
+from vaquita.core.router import BaseIntentRouter, IntentRoute
 from vaquita.tools.base import BaseTool
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -30,6 +31,8 @@ class VaquitaAgent:
         max_iterations: int = 5,
         max_history_messages: int = 20,
         on_tool_execute: Callable[[ToolCall], None] | None = None,
+        router: BaseIntentRouter | None = None,
+        on_intent: Callable[[IntentRoute], None] | None = None,
     ) -> None:
         self._provider = provider
         self._tools_map = {tool.definition.name: tool for tool in (tools or [])}
@@ -37,13 +40,21 @@ class VaquitaAgent:
         self._max_iterations = max_iterations
         self._max_history_messages = max_history_messages
         self._on_tool_execute = on_tool_execute
+        self._router = router
+        self._on_intent = on_intent
+        self._last_route: IntentRoute | None = None
         self._history: list[Message] = []
         self.reset()
 
     def reset(self) -> None:
         self._history = []
+        self._last_route = None
         if self._system_prompt.strip():
             self._history.append(Message(role="system", content=self._system_prompt))
+
+    @property
+    def last_route(self) -> IntentRoute | None:
+        return self._last_route
 
     @property
     def history(self) -> list[Message]:
@@ -79,7 +90,17 @@ class VaquitaAgent:
             self._history = kept
 
     def run(self, user_input: str) -> str:
-        self._history.append(Message(role="user", content=user_input))
+        prompt_content = user_input
+        if self._router is not None:
+            self._last_route = self._router.route(user_input)
+            if self._on_intent:
+                self._on_intent(self._last_route)
+            if self._last_route.is_confident and self._last_route.intent != "unknown":
+                prompt_content = f"[Intent: {self._last_route.intent}]\n{user_input}"
+        else:
+            self._last_route = None
+
+        self._history.append(Message(role="user", content=prompt_content))
         self._trim_history()
         tool_defs = self.tool_definitions or None
 

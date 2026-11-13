@@ -7,6 +7,7 @@ from vaquita.core.providers import (
     ToolCall,
     ToolDefinition,
 )
+from vaquita.core.router import IntentRoute
 from vaquita.tools.base import BaseTool
 
 
@@ -155,4 +156,57 @@ def test_agent_trimming_preserves_atomic_user_turn() -> None:
     assert agent.history[0].role == "system"
     assert agent.history[1].role == "user"
     assert agent.history[1].content == "second query"
+
+
+def test_agent_with_confident_router_enriches_prompt_and_notifies() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="Terminal handled")
+
+    mock_router = MagicMock()
+    mock_router.route.return_value = IntentRoute(
+        intent="terminal",
+        confidence=0.98,
+        is_confident=True,
+    )
+
+    recorded_routes: list[IntentRoute] = []
+    agent = VaquitaAgent(
+        provider=mock_provider,
+        router=mock_router,
+        on_intent=recorded_routes.append,
+    )
+
+    result = agent.run("revisa el disco")
+    assert result == "Terminal handled"
+    assert len(recorded_routes) == 1
+    assert recorded_routes[0].intent == "terminal"
+    assert agent.last_route == recorded_routes[0]
+
+    # Verify injected intent guidance into user turn
+    user_turn = agent.history[1]
+    assert user_turn.role == "user"
+    assert user_turn.content == "[Intent: terminal]\nrevisa el disco"
+
+    # Reset clears route state
+    agent.reset()
+    assert agent.last_route is None
+
+
+def test_agent_with_unconfident_router_leaves_prompt_raw() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="General answer")
+
+    mock_router = MagicMock()
+    mock_router.route.return_value = IntentRoute(
+        intent="unknown",
+        confidence=0.25,
+        is_confident=False,
+    )
+
+    agent = VaquitaAgent(provider=mock_provider, router=mock_router)
+    result = agent.run("algo no visto")
+
+    assert result == "General answer"
+    user_turn = agent.history[1]
+    assert user_turn.content == "algo no visto"
 

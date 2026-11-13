@@ -11,7 +11,13 @@ from vaquita.core.providers import (
     ProviderError,
     ToolCall,
 )
+from vaquita.core.router import IntentRoute
 from vaquita.factory import create_agent
+
+
+def _log_intent(route: IntentRoute) -> None:
+    if route.is_confident and route.intent != "unknown":
+        print(f"[router] {route.intent} ({route.confidence:.0%})")
 
 
 def _log_tool_call(call: ToolCall) -> None:
@@ -34,12 +40,15 @@ def _confirm_command(command: str) -> bool:
 def build_agent(
     provider_name: str | None = None,
     auto_approve: bool = False,
+    enable_router: bool = True,
 ) -> VaquitaAgent:
     confirm_fn = None if auto_approve else _confirm_command
     return create_agent(
         provider_name=provider_name,
         confirm_fn=confirm_fn,
         on_tool_execute=_log_tool_call,
+        enable_router=enable_router,
+        on_intent=_log_intent,
     )
 
 
@@ -99,6 +108,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="LLM provider to use (overrides VAQUITA_PROVIDER env var).",
     )
     parser.add_argument(
+        "--router",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable local neural intent routing (default: enabled).",
+    )
+    parser.add_argument(
         "prompt",
         nargs="*",
         help="Prompt to execute directly. If omitted, starts interactive mode.",
@@ -107,7 +122,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args, remaining = parser.parse_known_args(argv)
 
     try:
-        agent = build_agent(provider_name=args.provider, auto_approve=args.yes)
+        agent = build_agent(
+            provider_name=args.provider,
+            auto_approve=args.yes,
+            enable_router=args.router,
+        )
     except ProviderAuthError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

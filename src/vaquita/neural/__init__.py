@@ -9,6 +9,11 @@ from vaquita.neural.intent import (
 )
 from vaquita.neural.mlp import Layer, MLP, NeuralUnit
 from vaquita.neural.neuron import Neuron
+from vaquita.neural.router import (
+    SEED_DATASET,
+    NeuralIntentRouter,
+    load_bundled_seed_dataset,
+)
 from vaquita.neural.transformer import MiniTransformerLM, TransformerBlock
 
 __all__ = [
@@ -18,12 +23,15 @@ __all__ = [
     "Layer",
     "MLP",
     "MiniTransformerLM",
+    "NeuralIntentRouter",
     "NeuralUnit",
     "Neuron",
+    "SEED_DATASET",
     "SelfAttentionHead",
     "TextVectorizer",
     "TransformerBlock",
     "Value",
+    "load_bundled_seed_dataset",
     "softmax",
     "tokenize",
 ]

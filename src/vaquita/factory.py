@@ -7,11 +7,25 @@ from vaquita.core.providers import (
     ProviderAuthError,
     ToolCall,
 )
+from vaquita.core.router import BaseIntentRouter, IntentRoute
 from vaquita.infrastructure.gemini import GeminiProvider
 from vaquita.infrastructure.host import detect_host
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
+from vaquita.neural.router import NeuralIntentRouter
 from vaquita.tools.base import BaseTool
 from vaquita.tools.bash import BashTool
+
+
+def create_router(
+    model_path: str | None = None,
+    dataset_path: str | None = None,
+    auto_train: bool = True,
+) -> BaseIntentRouter:
+    return NeuralIntentRouter.from_path_or_seed(
+        model_path=model_path,
+        dataset_path=dataset_path,
+        auto_train=auto_train,
+    )
 
 
 def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
@@ -68,6 +82,9 @@ def create_agent(
     confirm_fn: Callable[[str], bool] | None = None,
     on_tool_execute: Callable[[ToolCall], None] | None = None,
     system_prompt: str | None = None,
+    router: BaseIntentRouter | None = None,
+    enable_router: bool = False,
+    on_intent: Callable[[IntentRoute], None] | None = None,
 ) -> VaquitaAgent:
     resolved_provider = provider or create_provider(provider_name=provider_name)
     resolved_confirm = None if auto_approve else confirm_fn
@@ -77,9 +94,15 @@ def create_agent(
         if system_prompt is not None
         else build_system_prompt(detect_host().format_context())
     )
+    resolved_router = router
+    if resolved_router is None and enable_router:
+        resolved_router = create_router()
+
     return VaquitaAgent(
         provider=resolved_provider,
         tools=resolved_tools,
         system_prompt=resolved_system_prompt,
         on_tool_execute=on_tool_execute,
+        router=resolved_router,
+        on_intent=on_intent,
     )

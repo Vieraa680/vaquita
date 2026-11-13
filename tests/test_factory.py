@@ -2,7 +2,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vaquita.core.providers import BaseLLMProvider, ProviderAuthError
-from vaquita.factory import create_agent, create_provider
+from vaquita.core.router import BaseIntentRouter
+from vaquita.factory import create_agent, create_provider, create_router
 from vaquita.infrastructure.gemini import GeminiProvider
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
 
@@ -57,3 +58,41 @@ def test_create_agent_with_explicit_system_prompt() -> None:
         system_prompt=custom_prompt,
     )
     assert agent.history[0].content == custom_prompt
+
+
+def test_create_router_factory() -> None:
+    with patch("vaquita.factory.NeuralIntentRouter.from_path_or_seed") as mock_from_seed:
+        mock_router = MagicMock(spec=BaseIntentRouter)
+        mock_from_seed.return_value = mock_router
+
+        router = create_router()
+        assert router is mock_router
+        mock_from_seed.assert_called_once_with(
+            model_path=None,
+            dataset_path=None,
+            auto_train=True,
+        )
+
+
+def test_create_agent_with_router_options() -> None:
+    mock_provider = MagicMock()
+    custom_router = MagicMock(spec=BaseIntentRouter)
+
+    # Injected custom router
+    agent_with_custom = create_agent(
+        provider=mock_provider,
+        router=custom_router,
+    )
+    assert agent_with_custom._router is custom_router
+
+    # Enabled router via factory
+    with patch("vaquita.factory.create_router") as mock_create_router:
+        mock_created = MagicMock(spec=BaseIntentRouter)
+        mock_create_router.return_value = mock_created
+
+        agent_enabled = create_agent(
+            provider=mock_provider,
+            enable_router=True,
+        )
+        assert agent_enabled._router is mock_created
+        mock_create_router.assert_called_once()
