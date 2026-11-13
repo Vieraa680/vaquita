@@ -9,6 +9,7 @@ from vaquita.neural.intent import (
 )
 from vaquita.neural.mlp import Layer, MLP, NeuralUnit
 from vaquita.neural.neuron import Neuron
+from vaquita.neural.transformer import MiniTransformerLM, TransformerBlock
 
 __all__ = [
     "Embedding",
@@ -16,10 +17,12 @@ __all__ = [
     "IntentPrediction",
     "Layer",
     "MLP",
+    "MiniTransformerLM",
     "NeuralUnit",
     "Neuron",
     "SelfAttentionHead",
     "TextVectorizer",
+    "TransformerBlock",
     "Value",
     "softmax",
     "tokenize",
