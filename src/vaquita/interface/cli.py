@@ -122,12 +122,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Enable persistent user memory (default: enabled).",
     )
     parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Run Vaquita as a local background HTTP daemon for desktop/mobile clients.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port for the local HTTP daemon (default: 8765).",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host address for the local HTTP daemon (default: 127.0.0.1).",
+    )
+    parser.add_argument(
         "prompt",
         nargs="*",
         help="Prompt to execute directly. If omitted, starts interactive mode.",
     )
 
     args, remaining = parser.parse_known_args(argv)
+
+    if args.serve:
+        from vaquita.factory import create_profile_store
+        from vaquita.interface.server import VaquitaServer
+
+        profile_store = create_profile_store() if args.memory else None
+        server = VaquitaServer(
+            agent_factory=lambda: build_agent(
+                provider_name=args.provider,
+                auto_approve=args.yes,
+                enable_router=args.router,
+                enable_memory=args.memory,
+            ),
+            profile_store=profile_store,
+            host=args.host,
+            port=args.port,
+        )
+        server.serve_forever()
+        return 0
 
     try:
         agent = build_agent(
