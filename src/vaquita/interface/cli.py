@@ -12,7 +12,34 @@ from vaquita.core.providers import (
     ToolCall,
 )
 from vaquita.core.router import IntentRoute
+from vaquita.core.voice import BaseWakeWordListener, WakeWordEvent, WakeWordModelError
 from vaquita.factory import create_agent
+
+
+def _trigger_hud(action: str = "toggle") -> bool:
+    import subprocess
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:8766/{action}",
+            data=action.encode("utf-8"),
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=0.8):
+            return True
+    except (urllib.error.URLError, OSError):
+        root = Path(__file__).resolve().parents[3]
+        for rel in (
+            "desktop/src-tauri/target/debug/vaquita-desktop",
+            "desktop/src-tauri/target/release/vaquita-desktop",
+        ):
+            binary = root / rel
+            if binary.exists():
+                subprocess.Popen([str(binary)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+        return False
 
 
 def _log_intent(route: IntentRoute) -> None:
@@ -91,6 +118,116 @@ def load_configuration() -> None:
         load_dotenv(repo_env)
 
 
+def _init_wake_listener(args: argparse.Namespace) -> BaseWakeWordListener | None:
+    from vaquita.factory import create_wake_word_listener
+
+    listener = create_wake_word_listener(
+        energy_threshold=args.energy_threshold,
+        backend=args.wake_backend,
+        model_path=args.wake_model,
+    )
+    if listener is None:
+        raise WakeWordModelError(
+            "No hay backend de Wake Word disponible (instalá vosk o configurá GROQ_API_KEY)."
+        )
+    return listener
+
+
+def _run_serve(args: argparse.Namespace) -> int:
+    from vaquita.factory import create_profile_store
+    from vaquita.interface.server import ServerError, VaquitaServer
+
+    profile_store = create_profile_store() if args.memory else None
+    server = VaquitaServer(
+        agent_factory=lambda: build_agent(
+            provider_name=args.provider,
+            auto_approve=args.yes,
+            enable_router=args.router,
+            enable_memory=args.memory,
+        ),
+        profile_store=profile_store,
+        host=args.host,
+        port=args.port,
+    )
+
+    try:
+        server.prepare()
+    except ServerError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    wake_listener: BaseWakeWordListener | None = None
+    if args.listen:
+        try:
+            wake_listener = _init_wake_listener(args)
+        except WakeWordModelError as exc:
+            print(f"Error de Wake Word: {exc}", file=sys.stderr)
+            server.stop()
+            return 1
+
+        if wake_listener is not None:
+            def on_wake_serve(evt: WakeWordEvent) -> None:
+                print(f"\n[wake] Detectado: '{evt.wake_word}' (comando: '{evt.command}')")
+                if not _trigger_hud("show"):
+                    print(
+                        "HUD desktop binary not found. Compile it with 'cargo build --manifest-path desktop/src-tauri/Cargo.toml'.",
+                        file=sys.stderr,
+                    )
+
+            wake_listener.start(on_wake_serve)
+            print("[wake] Daemon activo (escuchando 'Vaquita' en micrófono)...")
+
+    try:
+        server.serve_forever()
+    finally:
+        if wake_listener is not None:
+            wake_listener.stop()
+    return 0
+
+
+def _run_listen(args: argparse.Namespace) -> int:
+    import threading
+
+    try:
+        wake_listener = _init_wake_listener(args)
+    except WakeWordModelError as exc:
+        print(f"Error de Wake Word: {exc}", file=sys.stderr)
+        return 1
+
+    if wake_listener is None:
+        return 1
+
+    active_agent: VaquitaAgent | None = None
+
+    def on_wake_cli(evt: WakeWordEvent) -> None:
+        nonlocal active_agent
+        print(f"\n[wake] Detectado: '{evt.wake_word}' (comando: '{evt.command or 'abriendo ventana...'}')")
+        _trigger_hud("show")
+
+        if evt.command:
+            if active_agent is None:
+                active_agent = build_agent(
+                    provider_name=args.provider,
+                    auto_approve=args.yes,
+                    enable_router=args.router,
+                    enable_memory=args.memory,
+                )
+            try:
+                resp = active_agent.run(evt.command)
+                print(f"\n[vaquita] {resp}\n")
+            except Exception as exc:
+                print(f"Error procesando comando: {exc}", file=sys.stderr)
+
+    wake_listener.start(on_wake_cli)
+    print("[wake] Escuchando Wake Word 'Vaquita' en micrófono... (Ctrl+C para detener)")
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        print("\nDeteniendo Wake Word listener...")
+        wake_listener.stop()
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     load_configuration()
 
@@ -106,7 +243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--provider",
-        choices=["groq", "nvidia", "gemini", "openai_compat"],
+        choices=["groq", "nvidia", "openai_compat"],
         help="LLM provider to use (overrides VAQUITA_PROVIDER env var).",
     )
     parser.add_argument(
@@ -127,6 +264,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Run Vaquita as a local background HTTP daemon for desktop/mobile clients.",
     )
     parser.add_argument(
+        "--hud",
+        "--toggle",
+        dest="hud",
+        action="store_true",
+        help="Toggle or launch the desktop assistant window (ideal for Hyprland/Wayland shortcuts).",
+    )
+    parser.add_argument(
+        "--voice",
+        action="store_true",
+        help="Record a voice command from microphone and process it directly.",
+    )
+    parser.add_argument(
+        "--voice-duration",
+        type=float,
+        default=4.0,
+        help="Duration in seconds for voice command capture (default: 4.0).",
+    )
+    parser.add_argument(
+        "--listen",
+        action="store_true",
+        help="Continuously listen for the local wake word 'Vaquita' in background.",
+    )
+    parser.add_argument(
+        "--energy-threshold",
+        type=float,
+        default=300.0,
+        help="Audio energy (RMS) threshold for speech activity detection (default: 300.0).",
+    )
+    parser.add_argument(
+        "--wake-backend",
+        choices=["auto", "vosk", "transcriber"],
+        default="auto",
+        help="Wake word detection backend (default: auto, prefers offline vosk).",
+    )
+    parser.add_argument(
+        "--wake-model",
+        type=str,
+        default=None,
+        help="Optional path to a local Vosk model directory.",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=8765,
@@ -145,24 +323,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args, remaining = parser.parse_known_args(argv)
 
-    if args.serve:
-        from vaquita.factory import create_profile_store
-        from vaquita.interface.server import VaquitaServer
+    if args.hud:
+        if _trigger_hud("toggle"):
+            return 0
+        print("Desktop binary not found. Compile it with 'cargo build --manifest-path desktop/src-tauri/Cargo.toml'.", file=sys.stderr)
+        return 1
 
-        profile_store = create_profile_store() if args.memory else None
-        server = VaquitaServer(
-            agent_factory=lambda: build_agent(
-                provider_name=args.provider,
-                auto_approve=args.yes,
-                enable_router=args.router,
-                enable_memory=args.memory,
-            ),
-            profile_store=profile_store,
-            host=args.host,
-            port=args.port,
-        )
-        server.serve_forever()
-        return 0
+    if args.serve:
+        return _run_serve(args)
+
+    if args.listen:
+        return _run_listen(args)
 
     try:
         agent = build_agent(
@@ -180,6 +351,35 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     prompt_tokens = list(args.prompt) + remaining
     prompt_text = " ".join(prompt_tokens).strip()
+
+    if args.voice:
+        from vaquita.core.voice import VoiceError
+        from vaquita.factory import create_audio_recorder, create_transcriber
+
+        transcriber = create_transcriber()
+        if transcriber is None:
+            print(
+                "Error: Voice commands require GROQ_API_KEY or a local Vosk model.",
+                file=sys.stderr,
+            )
+            return 1
+
+        recorder = create_audio_recorder()
+        print(f"[voice] Escuchando micrófono ({args.voice_duration:.1f}s)... Habla ahora.")
+        try:
+            audio_bytes = recorder.record(duration_seconds=args.voice_duration)
+            transcribed = transcriber.transcribe(audio_bytes).strip()
+        except VoiceError as exc:
+            print(f"Error de captura de voz: {exc}", file=sys.stderr)
+            return 1
+
+        if not transcribed:
+            print("[voice] No se detectó ningún comando de voz inteligible.")
+            return 0
+
+        print(f"[voice] Voz reconocida: \"{transcribed}\"")
+        prompt_text = transcribed
+
     if prompt_text:
         try:
             response = agent.run(prompt_text)

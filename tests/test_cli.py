@@ -206,3 +206,13 @@ def test_load_configuration_calls() -> None:
     with patch("vaquita.interface.cli.load_dotenv") as mock_load:
         load_configuration()
         assert mock_load.call_count >= 1
+
+
+def test_main_serve_port_in_use(capsys: pytest.CaptureFixture[str]) -> None:
+    from vaquita.interface.server import ServerError
+
+    with patch("vaquita.interface.server.VaquitaServer.prepare", side_effect=ServerError("El puerto 8765 ya está en uso")):
+        code = main(["--serve"])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "El puerto 8765 ya está en uso" in captured.err

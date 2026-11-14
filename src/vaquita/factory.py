@@ -9,9 +9,22 @@ from vaquita.core.providers import (
     ToolCall,
 )
 from vaquita.core.router import BaseIntentRouter, IntentRoute
-from vaquita.infrastructure.gemini import GeminiProvider
+from vaquita.core.voice import (
+    BaseAudioRecorder,
+    BaseAudioTranscriber,
+    BaseWakeWordDetector,
+    BaseWakeWordListener,
+    WakeWordModelError,
+)
 from vaquita.infrastructure.host import detect_host
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
+from vaquita.infrastructure.voice import (
+    GroqAudioTranscriber,
+    LocalAudioRecorder,
+    VoskAudioTranscriber,
+)
+from vaquita.infrastructure.vosk_wake import VoskWakeWordDetector
+from vaquita.infrastructure.wake_word import LocalWakeWordListener
 from vaquita.memory import (
     BaseMemory,
     BaseProfileStore,
@@ -48,8 +61,90 @@ def create_episodic_memory(db_path: Path | str | None = None) -> BaseMemory:
     return EpisodicMemoryStore(db_path=db_path)
 
 
+def create_audio_recorder(sample_rate: int = 16000) -> BaseAudioRecorder:
+    return LocalAudioRecorder(sample_rate=sample_rate)
+
+
+def create_transcriber(
+    api_key: str | None = None,
+    backend: str | None = None,
+    model_path: str | None = None,
+) -> BaseAudioTranscriber | None:
+    selected = (backend or os.getenv("VAQUITA_TRANSCRIBER") or "auto").lower()
+
+    if selected == "vosk":
+        return VoskAudioTranscriber(model_path=model_path)
+
+    if selected == "groq":
+        key = api_key or os.getenv("GROQ_API_KEY")
+        if not key:
+            return None
+        return GroqAudioTranscriber(api_key=key)
+
+    if selected == "auto":
+        key = api_key or os.getenv("GROQ_API_KEY")
+        if key:
+            return GroqAudioTranscriber(api_key=key)
+        try:
+            return VoskAudioTranscriber(model_path=model_path)
+        except Exception:
+            return None
+
+    raise ValueError(f"Unknown transcriber backend '{selected}'. Supported: auto, groq, vosk.")
+
+
+def create_wake_word_listener(
+    transcriber: BaseAudioTranscriber | None = None,
+    detector: BaseWakeWordDetector | None = None,
+    energy_threshold: float = 300.0,
+    backend: str = "auto",
+    model_path: str | None = None,
+) -> BaseWakeWordListener | None:
+    if detector is not None:
+        return LocalWakeWordListener(
+            detector=detector,
+            energy_threshold=energy_threshold,
+        )
+
+    selected = (backend or os.getenv("VAQUITA_WAKE_BACKEND") or "auto").lower()
+
+    if selected == "vosk":
+        vosk_detector = VoskWakeWordDetector(model_path=model_path)
+        return LocalWakeWordListener(
+            detector=vosk_detector,
+            energy_threshold=energy_threshold,
+        )
+
+    if selected == "transcriber":
+        resolved_transcriber = transcriber or create_transcriber()
+        if resolved_transcriber is None:
+            return None
+        return LocalWakeWordListener(
+            transcriber=resolved_transcriber,
+            energy_threshold=energy_threshold,
+        )
+
+    if selected == "auto":
+        try:
+            vosk_detector = VoskWakeWordDetector(model_path=model_path)
+            return LocalWakeWordListener(
+                detector=vosk_detector,
+                energy_threshold=energy_threshold,
+            )
+        except WakeWordModelError:
+            resolved_transcriber = transcriber or create_transcriber()
+            if resolved_transcriber is None:
+                return None
+            return LocalWakeWordListener(
+                transcriber=resolved_transcriber,
+                energy_threshold=energy_threshold,
+            )
+
+    raise ValueError(f"Unknown wake word backend '{selected}'. Supported: auto, vosk, transcriber.")
+
+
 def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
-    selected = (provider_name or os.getenv("VAQUITA_PROVIDER") or "gemini").lower()
+    selected = (provider_name or os.getenv("VAQUITA_PROVIDER") or "groq").lower()
 
     if selected == "groq":
         api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -88,10 +183,7 @@ def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
             model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         )
 
-    if selected == "gemini":
-        return GeminiProvider()
-
-    raise ValueError(f"Unknown provider '{selected}'. Supported: groq, nvidia, gemini, openai_compat.")
+    raise ValueError(f"Unknown provider '{selected}'. Supported: groq, nvidia, openai_compat.")
 
 
 def create_agent(
