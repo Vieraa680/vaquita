@@ -1,21 +1,35 @@
 const promptInput = document.getElementById("promptInput");
-const sendBtn = document.getElementById("sendBtn");
-const statusOrb = document.getElementById("statusOrb");
+const promptIcon = document.getElementById("promptIcon");
+const spinner = document.getElementById("spinner");
+const micBtn = document.getElementById("micBtn");
+const closeBtn = document.getElementById("closeBtn");
 const responsePanel = document.getElementById("responsePanel");
 const responseContent = document.getElementById("responseContent");
-const intentPill = document.getElementById("intentPill");
-const intentText = document.getElementById("intentText");
-const hudTimestamp = document.getElementById("hudTimestamp");
+const footerMeta = document.getElementById("footerMeta");
 
-function setStatus(state) {
-  statusOrb.className = "status-orb " + state;
+const COMPACT_HEIGHT = 68;
+const EXPANDED_HEIGHT = 420;
+
+let isRecording = false;
+
+function setLoading(loading) {
+  if (loading) {
+    promptIcon.classList.add("hidden");
+    spinner.classList.remove("hidden");
+  } else {
+    spinner.classList.add("hidden");
+    promptIcon.classList.remove("hidden");
+  }
 }
 
-async function invokeTauri(command, args) {
-  if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+async function invokeTauri(command, args = {}) {
+  if (window.__TAURI__?.core?.invoke) {
     return await window.__TAURI__.core.invoke(command, args);
   }
-  if (window.__TAURI__ && window.__TAURI__.invoke) {
+  if (window.__TAURI_INTERNALS__?.invoke) {
+    return await window.__TAURI_INTERNALS__.invoke(command, args);
+  }
+  if (window.__TAURI__?.invoke) {
     return await window.__TAURI__.invoke(command, args);
   }
 
@@ -26,68 +40,193 @@ async function invokeTauri(command, args) {
       body: JSON.stringify({ prompt: args.prompt }),
     });
     if (!res.ok) {
-      throw new Error(`Daemon error: HTTP ${res.status}`);
+      throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    }
+    return await res.json();
+  }
+
+  if (command === "record_voice") {
+    const res = await fetch("http://127.0.0.1:8765/api/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ record_seconds: args.seconds || 4.0 }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     }
     return await res.json();
   }
 
   if (command === "hide_window") {
-    responsePanel.classList.add("hidden");
+    try {
+      await fetch("http://127.0.0.1:8766/hide", { method: "POST", mode: "no-cors" });
+    } catch (_) {
+      // Ignore if IPC listener is not active
+    }
+    return;
+  }
+
+  if (command === "set_window_height") {
     return;
   }
 
   throw new Error(`Unsupported command: ${command}`);
 }
 
+async function setWindowHeight(height) {
+  try {
+    await invokeTauri("set_window_height", { height });
+  } catch (_) {
+    // Ignore when running outside Tauri
+  }
+}
+
+async function showResultsPanel() {
+  responsePanel.classList.remove("hidden");
+  await setWindowHeight(EXPANDED_HEIGHT);
+}
+
+async function hideResultsPanel() {
+  responsePanel.classList.add("hidden");
+  await setWindowHeight(COMPACT_HEIGHT);
+}
+
+async function closeWindow() {
+  await hideResultsPanel();
+  promptInput.value = "";
+  await invokeTauri("hide_window").catch(() => {});
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatMessage(text) {
+  if (!text) return "";
+
+  if (text.includes("429") || text.includes("OTPM") || text.includes("Request too large")) {
+    return `
+      <div class="error-notice">
+        Límite de tokens alcanzado en el proveedor actual. Probá con una consulta más breve o cambiá el modelo/proveedor en <code>.env</code>.
+      </div>
+    `;
+  }
+
+  let html = escapeHtml(text);
+
+  html = html.replace(/```([\w]*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
+    return `<pre><code>${code.trim()}</code></pre>`;
+  });
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/^\s*[-*]\s+(.+)$/gm, "<li>$1</li>");
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
+  html = html.replace(/\n\n+/g, "<br><br>");
+  html = html.replace(/\n/g, "<br>");
+
+  return html;
+}
+
+function formatError(msg) {
+  return `<div class="error-notice">${escapeHtml(msg)}</div>`;
+}
+
+function updateFooter(intent) {
+  const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (intent && intent.label && intent.label !== "unknown") {
+    const conf = Math.round((intent.confidence || 0) * 100);
+    footerMeta.textContent = `${intent.label} · ${conf}% · ${time}`;
+  } else {
+    footerMeta.textContent = time;
+  }
+}
+
 async function handleSubmit() {
   const query = promptInput.value.trim();
   if (!query) return;
 
-  setStatus("thinking");
-  responsePanel.classList.remove("hidden");
-  responseContent.textContent = "Analizando contexto...";
-  intentText.textContent = "neural // routing...";
-  hudTimestamp.textContent = new Date().toLocaleTimeString();
+  setLoading(true);
+  await showResultsPanel();
+  responseContent.textContent = "Procesando...";
+  footerMeta.textContent = "vaquita";
 
   try {
     const result = await invokeTauri("send_query", { prompt: query });
-    setStatus("success");
-
-    if (result.intent && result.intent.label) {
-      const conf = Math.round((result.intent.confidence || 0) * 100);
-      intentText.textContent = `${result.intent.label} • ${conf}%`;
-      intentPill.style.display = "inline-flex";
-    } else {
-      intentPill.style.display = "none";
-    }
+    setLoading(false);
+    updateFooter(result.intent);
 
     if (result.error) {
-      responseContent.textContent = "Error: " + result.error;
-      setStatus("error");
+      responseContent.innerHTML = formatError(result.error);
     } else {
-      responseContent.textContent = result.response || "Completado.";
+      responseContent.innerHTML = formatMessage(result.response || "");
     }
   } catch (err) {
-    setStatus("error");
-    intentText.textContent = "error // offline";
-    responseContent.textContent = String(err.message || err);
+    setLoading(false);
+    footerMeta.textContent = "sin conexión";
+    responseContent.innerHTML = formatError(String(err.message || err));
   }
 }
 
-// Event Listeners
+async function handleVoiceRecord() {
+  if (isRecording) return;
+  isRecording = true;
+  micBtn.classList.add("recording");
+  setLoading(true);
+  promptInput.placeholder = "Escuchando...";
+  await showResultsPanel();
+  responseContent.textContent = "Grabando comando de voz...";
+  footerMeta.textContent = "micrófono";
+
+  try {
+    const result = await invokeTauri("record_voice", { seconds: 4.0 });
+    setLoading(false);
+    micBtn.classList.remove("recording");
+    promptInput.placeholder = "Ask Vaquita...";
+
+    if (result.transcribed_prompt) {
+      promptInput.value = result.transcribed_prompt;
+    }
+
+    updateFooter(result.intent);
+
+    if (result.error) {
+      responseContent.innerHTML = formatError(result.error);
+    } else {
+      responseContent.innerHTML = formatMessage(result.response || "");
+    }
+  } catch (err) {
+    setLoading(false);
+    micBtn.classList.remove("recording");
+    promptInput.placeholder = "Ask Vaquita...";
+    footerMeta.textContent = "error";
+    responseContent.innerHTML = formatError(String(err.message || err));
+  } finally {
+    isRecording = false;
+  }
+}
+
 promptInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
     handleSubmit();
-  } else if (e.key === "Escape") {
-    e.preventDefault();
-    if (!responsePanel.classList.contains("hidden")) {
-      responsePanel.classList.add("hidden");
-    } else {
-      promptInput.value = "";
-      invokeTauri("hide_window", {}).catch(() => {});
-    }
   }
 });
 
-sendBtn.addEventListener("click", handleSubmit);
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if (!responsePanel.classList.contains("hidden")) {
+      hideResultsPanel();
+    } else {
+      closeWindow();
+    }
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "m") {
+    e.preventDefault();
+    handleVoiceRecord();
+  }
+});
+
+micBtn.addEventListener("click", handleVoiceRecord);
+closeBtn.addEventListener("click", closeWindow);

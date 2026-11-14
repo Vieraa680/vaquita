@@ -3,52 +3,59 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vaquita HUD</title>
+  <title>Vaquita</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="hud-container" id="hudContainer">
-    <header class="hud-header" data-tauri-drag-region>
-      <div class="hud-brand">
-        <span class="hud-logo-icon">✦</span>
-        <span class="hud-title">VAQUITA</span>
-        <span class="hud-subtitle">// HUD</span>
+  <main class="palette" id="palette">
+    <div class="command-bar" data-tauri-drag-region>
+      <div class="leading-indicator" data-tauri-drag-region>
+        <svg class="prompt-icon" id="promptIcon" viewBox="0 0 24 24" width="17" height="17" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <div class="spinner hidden" id="spinner"></div>
       </div>
-      <div class="hud-header-right">
-        <div class="status-orb" id="statusOrb" title="Estado: Listo"></div>
-        <span class="hud-shortcut-hint">ESC</span>
-      </div>
-    </header>
 
-    <div class="hud-input-wrapper">
       <input
         type="text"
         id="promptInput"
-        class="hud-input"
-        placeholder="Escribe o pide algo..."
+        class="command-input"
+        placeholder="Ask Vaquita..."
         autofocus
         autocomplete="off"
         spellcheck="false"
       />
-      <button id="sendBtn" class="hud-send-btn" title="Enviar consulta (Enter)">
-        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
+
+      <div class="bar-actions">
+        <button id="micBtn" class="icon-btn" title="Voz (Ctrl+M)" aria-label="Comando de voz">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="22"></line>
+          </svg>
+        </button>
+
+        <button id="closeBtn" class="icon-btn" title="Cerrar (Esc)" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
     </div>
 
-    <div class="hud-response-panel hidden" id="responsePanel">
-      <div class="hud-meta-bar">
-        <div class="intent-pill" id="intentPill">
-          <span class="intent-dot"></span>
-          <span class="intent-text" id="intentText">neural // routing</span>
+    <section class="results hidden" id="responsePanel">
+      <div class="results-body" id="responseContent"></div>
+
+      <footer class="results-footer">
+        <span class="footer-meta" id="footerMeta">vaquita</span>
+        <div class="footer-hints">
+          <span><kbd>Ctrl</kbd>+<kbd>M</kbd> voz</span>
+          <span><kbd>Esc</kbd> cerrar</span>
         </div>
-        <span class="hud-timestamp" id="hudTimestamp"></span>
-      </div>
-      <div class="hud-response-content" id="responseContent"></div>
-    </div>
-  </div>
+      </footer>
+    </section>
+  </main>
 
   <script src="main.js"></script>
 </body>
