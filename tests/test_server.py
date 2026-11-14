@@ -1,8 +1,10 @@
 import json
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import urllib.error
 import urllib.request
+
+import pytest
 
 from vaquita.core.agent import VaquitaAgent
 from vaquita.core.router import IntentRoute
@@ -115,3 +117,14 @@ def test_server_chat_endpoint_success_and_validations() -> None:
         assert status_404 == 404
     finally:
         server.stop()
+
+
+def test_server_prepare_port_conflict() -> None:
+    from vaquita.interface.server import ServerError
+
+    mock_agent = MagicMock(spec=VaquitaAgent)
+    server = VaquitaServer(agent_factory=lambda: mock_agent, port=8765)
+
+    with patch("vaquita.interface.server.VaquitaHTTPServer", side_effect=OSError(98, "Address already in use")):
+        with pytest.raises(ServerError, match="ya está en uso"):
+            server.prepare()
