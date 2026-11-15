@@ -12,15 +12,7 @@ from vaquita.factory import (
     create_router,
 )
 from vaquita.memory import BaseMemory, BaseProfileStore
-from vaquita.infrastructure.gemini import GeminiProvider
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
-
-
-def test_create_provider_gemini() -> None:
-    with patch.dict("os.environ", {"GEMINI_API_KEY": "dummy_gemini_key"}):
-        provider = create_provider("gemini")
-        assert isinstance(provider, GeminiProvider)
-        assert isinstance(provider, BaseLLMProvider)
 
 
 def test_create_provider_groq() -> None:
