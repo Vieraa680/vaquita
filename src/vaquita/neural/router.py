@@ -83,8 +83,8 @@ class NeuralIntentRouter(BaseIntentRouter):
 
     def train_and_save(
         self,
-        epochs: int = 120,
-        learning_rate: float = 0.5,
+        epochs: int = 100,
+        learning_rate: float = 0.6,
     ) -> list[float]:
         losses = self.classifier.fit(
             self._samples,
@@ -127,7 +127,8 @@ class NeuralIntentRouter(BaseIntentRouter):
         resolved_model = Path(model_path) if model_path is not None else DEFAULT_MODEL_PATH
         resolved_dataset = Path(dataset_path) if dataset_path is not None else DEFAULT_DATASET_PATH
 
-        samples = load_bundled_seed_dataset()
+        seed_samples = load_bundled_seed_dataset()
+        samples = list(seed_samples)
         if resolved_dataset.is_file():
             try:
                 raw_data = json.loads(resolved_dataset.read_text(encoding="utf-8"))
@@ -139,11 +140,27 @@ class NeuralIntentRouter(BaseIntentRouter):
                     ]
                     if loaded:
                         samples = loaded
+                        existing = set(samples)
+                        for sample in seed_samples:
+                            if sample not in existing:
+                                samples.append(sample)
+                                existing.add(sample)
             except (json.JSONDecodeError, KeyError):
                 pass
 
+        seed_intents = {intent for _, intent in seed_samples}
         if resolved_model.is_file():
             classifier = IntentClassifier.load(resolved_model)
+            if auto_train and not seed_intents.issubset(set(classifier.labels)):
+                fresh_classifier = IntentClassifier(hidden_size=12, seed=seed)
+                router = cls(
+                    classifier=fresh_classifier,
+                    model_path=resolved_model,
+                    dataset_path=resolved_dataset,
+                    samples=samples,
+                )
+                router.train_and_save()
+                return router
             return cls(
                 classifier=classifier,
                 model_path=resolved_model,
@@ -151,7 +168,7 @@ class NeuralIntentRouter(BaseIntentRouter):
                 samples=samples,
             )
 
-        classifier = IntentClassifier(hidden_size=8, seed=seed)
+        classifier = IntentClassifier(hidden_size=12, seed=seed)
         router = cls(
             classifier=classifier,
             model_path=resolved_model,

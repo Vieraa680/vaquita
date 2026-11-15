@@ -93,3 +93,33 @@ def test_neural_intent_router_continuous_learning_and_persistence(tmp_path: Path
     assert pred_iot.intent == "iot"
     assert pred_iot.is_confident is True
     assert pred_iot.confidence > 0.7
+
+
+def test_neural_intent_router_retrains_when_seed_adds_new_intents(tmp_path: Path) -> None:
+    model_file = tmp_path / "models" / "intent.json"
+    dataset_file = tmp_path / "models" / "dataset.json"
+
+    old_samples = [
+        ("revisa disco", "terminal"),
+        ("apaga luz", "domotica"),
+    ]
+    old_classifier = IntentClassifier(hidden_size=4, seed=42)
+    old_router = NeuralIntentRouter(
+        classifier=old_classifier,
+        model_path=model_file,
+        dataset_path=dataset_file,
+        samples=old_samples,
+    )
+    old_router.train_and_save(epochs=40, learning_rate=0.5)
+
+    upgraded = NeuralIntentRouter.from_path_or_seed(
+        model_path=model_file,
+        dataset_path=dataset_file,
+        auto_train=True,
+    )
+
+    assert "sys_ip" in upgraded.classifier.labels
+    assert "sys_ram" in upgraded.classifier.labels
+    route_ip = upgraded.route("me pasas mi direccion ip")
+    assert route_ip.intent == "sys_ip"
+    assert route_ip.is_confident is True
