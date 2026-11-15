@@ -143,6 +143,52 @@ function updateFooter(intent) {
   }
 }
 
+async function streamQuery(prompt, onToken) {
+  const res = await fetch("http://127.0.0.1:8765/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() || "";
+
+    for (const block of blocks) {
+      let eventType = "message";
+      let dataLine = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) eventType = line.slice(6).trim();
+        if (line.startsWith("data:")) dataLine += line.slice(5).trim();
+      }
+      if (!dataLine) continue;
+      const payload = JSON.parse(dataLine);
+      if (eventType === "token" && payload.token) {
+        onToken(payload.token);
+      } else if (eventType === "done") {
+        finalResult = payload;
+      } else if (eventType === "error") {
+        return { error: payload.error };
+      }
+    }
+  }
+
+  return finalResult || { response: "" };
+}
+
 async function handleSubmit() {
   const query = promptInput.value.trim();
   if (!query) return;
@@ -152,15 +198,27 @@ async function handleSubmit() {
   responseContent.textContent = "Procesando...";
   footerMeta.textContent = "vaquita";
 
+  let accumulated = "";
+
   try {
-    const result = await invokeTauri("send_query", { prompt: query });
+    let result;
+    try {
+      result = await streamQuery(query, (token) => {
+        accumulated += token;
+        responseContent.textContent = accumulated;
+        responsePanel.scrollTop = responsePanel.scrollHeight;
+      });
+    } catch (_) {
+      result = await invokeTauri("send_query", { prompt: query });
+    }
+
     setLoading(false);
     updateFooter(result.intent);
 
     if (result.error) {
       responseContent.innerHTML = formatError(result.error);
     } else {
-      responseContent.innerHTML = formatMessage(result.response || "");
+      responseContent.innerHTML = formatMessage(result.response || accumulated);
     }
   } catch (err) {
     setLoading(false);

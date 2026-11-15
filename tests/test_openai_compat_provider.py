@@ -159,3 +159,60 @@ def test_provider_network_exception() -> None:
     with patch("requests.post", side_effect=requests.ConnectionError("Connection refused")):
         with pytest.raises(ProviderError, match="HTTP request failed"):
             provider.generate([Message(role="user", content="hello")])
+
+
+def test_provider_without_api_key_allowed_for_local() -> None:
+    provider = OpenAICompatibleProvider(
+        api_key="",
+        base_url="http://127.0.0.1:8080/v1",
+        model="local-model",
+        require_api_key=False,
+    )
+    assert "Authorization" not in provider._build_headers()
+
+
+def test_provider_generate_stream_tokens_and_tool_calls() -> None:
+    provider = OpenAICompatibleProvider(api_key="", require_api_key=False)
+    sse_lines = [
+        'data: {"choices":[{"delta":{"content":"¿Cómo "}}]}'.encode("utf-8"),
+        'data: {"choices":[{"delta":{"content":"estás?"}}]}'.encode("utf-8"),
+        b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"ba","arguments":"{\\"com"}}]}}]}',
+        b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"sh","arguments":"mand\\":\\"ls\\"}"}}]}}]}',
+        b"data: [DONE]",
+    ]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.iter_lines.return_value = sse_lines
+
+    tokens: list[str] = []
+    with patch("requests.post", return_value=mock_response):
+        resp = provider.generate_stream(
+            [Message(role="user", content="hola")],
+            on_token=tokens.append,
+        )
+
+    assert tokens == ["¿Cómo ", "estás?"]
+    assert resp.text == "¿Cómo estás?"
+    assert len(resp.tool_calls) == 1
+    assert resp.tool_calls[0].name == "bash"
+    assert resp.tool_calls[0].arguments == {"command": "ls"}
+
+
+def test_provider_optional_sampling_parameters_in_payload() -> None:
+    default_provider = OpenAICompatibleProvider(api_key="", require_api_key=False)
+    default_payload = default_provider._build_payload([Message(role="user", content="hola")])
+    assert "top_p" not in default_payload
+    assert "min_p" not in default_payload
+    assert "repeat_penalty" not in default_payload
+
+    tuned_provider = OpenAICompatibleProvider(
+        api_key="",
+        top_p=0.9,
+        min_p=0.05,
+        repeat_penalty=1.1,
+        require_api_key=False,
+    )
+    tuned_payload = tuned_provider._build_payload([Message(role="user", content="hola")])
+    assert tuned_payload["top_p"] == 0.9
+    assert tuned_payload["min_p"] == 0.05
+    assert tuned_payload["repeat_penalty"] == 1.1

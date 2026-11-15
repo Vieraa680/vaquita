@@ -128,3 +128,37 @@ def test_server_prepare_port_conflict() -> None:
     with patch("vaquita.interface.server.VaquitaHTTPServer", side_effect=OSError(98, "Address already in use")):
         with pytest.raises(ServerError, match="ya está en uso"):
             server.prepare()
+
+
+def test_server_chat_stream_endpoint() -> None:
+    mock_agent = MagicMock(spec=VaquitaAgent)
+
+    def fake_run_stream(prompt: str, on_token: Any = None) -> str:
+        if on_token is not None:
+            on_token("Hola ")
+            on_token("albers")
+        return "Hola albers"
+
+    mock_agent.run_stream.side_effect = fake_run_stream
+    mock_agent.last_route = IntentRoute(intent="chat", confidence=0.9, is_confident=True)
+
+    server = VaquitaServer(agent_factory=lambda: mock_agent, port=0)
+    server.start_background()
+
+    try:
+        url = f"http://127.0.0.1:{server.port}/api/chat/stream"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"prompt": "hola"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            body = resp.read().decode("utf-8")
+            assert "event: token" in body
+            assert '"token": "Hola "' in body
+            assert "event: done" in body
+            assert '"response": "Hola albers"' in body
+    finally:
+        server.stop()

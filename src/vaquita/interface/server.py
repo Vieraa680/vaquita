@@ -88,7 +88,7 @@ class VaquitaRequestHandler(http.server.BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
-        if self.path not in ("/api/chat", "/api/voice"):
+        if self.path not in ("/api/chat", "/api/chat/stream", "/api/voice"):
             self._send_json(
                 {"error": f"Endpoint '{self.path}' not found."},
                 status=HTTPStatus.NOT_FOUND,
@@ -118,7 +118,49 @@ class VaquitaRequestHandler(http.server.BaseHTTPRequestHandler):
             self._handle_voice(body)
             return
 
+        if self.path == "/api/chat/stream":
+            self._handle_chat_stream(body)
+            return
+
         self._handle_chat(body)
+
+    def _send_sse_event(self, event: str, data: dict[str, Any]) -> None:
+        chunk = f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8")
+        self.wfile.write(chunk)
+        self.wfile.flush()
+
+    def _handle_chat_stream(self, body: dict[str, Any]) -> None:
+        prompt = str(body.get("prompt", "")).strip()
+        if not prompt:
+            self._send_json(
+                {"error": "'prompt' field cannot be empty."},
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        def on_token(token: str) -> None:
+            self._send_sse_event("token", {"token": token})
+
+        try:
+            response_text = self.server.agent.run_stream(prompt, on_token=on_token)
+            route = self.server.agent.last_route
+            intent_data = {
+                "label": route.intent if route else "unknown",
+                "confidence": route.confidence if route else 0.0,
+                "is_confident": route.is_confident if route else False,
+            }
+            self._send_sse_event(
+                "done",
+                {"response": response_text, "intent": intent_data},
+            )
+        except Exception as exc:
+            self._send_sse_event("error", {"error": str(exc)})
 
     def _handle_chat(self, body: dict[str, Any]) -> None:
         prompt = str(body.get("prompt", "")).strip()

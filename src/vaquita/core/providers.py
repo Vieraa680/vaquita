@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -47,4 +48,14 @@ class BaseLLMProvider(Protocol):
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
+    ) -> LLMResponse: ...
+
+
+@runtime_checkable
+class StreamingLLMProvider(Protocol):
+    def generate_stream(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
+        on_token: Callable[[str], None] | None = None,
     ) -> LLMResponse: ...
