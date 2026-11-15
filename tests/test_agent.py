@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from vaquita.core.agent import VaquitaAgent
+from vaquita.core.agent import VaquitaAgent, build_system_prompt
 from vaquita.core.providers import (
     LLMResponse,
     Message,
@@ -185,7 +185,7 @@ def test_agent_with_confident_router_enriches_prompt_and_notifies() -> None:
     # Verify injected intent guidance into user turn
     user_turn = agent.history[1]
     assert user_turn.role == "user"
-    assert user_turn.content == "[Intent: terminal]\nrevisa el disco"
+    assert user_turn.content == "revisa el disco"
 
     # Reset clears route state
     agent.reset()
@@ -209,4 +209,129 @@ def test_agent_with_unconfident_router_leaves_prompt_raw() -> None:
     assert result == "General answer"
     user_turn = agent.history[1]
     assert user_turn.content == "algo no visto"
+
+
+def test_agent_fast_path_bypasses_llm_and_streams_tokens() -> None:
+    mock_provider = MagicMock()
+    mock_fast_path = MagicMock()
+    mock_fast_path.try_handle.return_value = "Hola. ¿En qué te ayudo?"
+
+    agent = VaquitaAgent(
+        provider=mock_provider,
+        tools=[DummyTool()],
+        fast_path=mock_fast_path,
+    )
+    tokens: list[str] = []
+    result = agent.run_stream("hola", on_token=tokens.append)
+
+    assert result == "Hola. ¿En qué te ayudo?"
+    assert tokens == ["Hola. ¿En qué te ayudo?"]
+    mock_provider.generate.assert_not_called()
+    assert [m.role for m in agent.history] == ["system", "user", "model"]
+    assert agent.history[-1].content == "Hola. ¿En qué te ayudo?"
+
+
+def test_agent_prunes_tools_on_charla_without_memory_cues() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="Linux es un kernel.")
+
+    mock_router = MagicMock()
+    mock_router.route.return_value = IntentRoute(
+        intent="charla",
+        confidence=0.82,
+        is_confident=True,
+    )
+
+    agent = VaquitaAgent(
+        provider=mock_provider,
+        tools=[DummyTool()],
+        router=mock_router,
+    )
+    result = agent.run("explicame que es linux")
+
+    assert result == "Linux es un kernel."
+    call_kwargs = mock_provider.generate.call_args.kwargs
+    assert call_kwargs["tools"] is None
+
+
+def test_agent_keeps_tools_on_charla_with_memory_cues_or_terminal_intent() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="Listo.")
+
+    mock_router = MagicMock()
+    mock_router.route.return_value = IntentRoute(
+        intent="charla",
+        confidence=0.80,
+        is_confident=True,
+    )
+
+    agent = VaquitaAgent(
+        provider=mock_provider,
+        tools=[DummyTool()],
+        router=mock_router,
+    )
+    agent.run("recorda que prefiero vim")
+    assert mock_provider.generate.call_args.kwargs["tools"] is not None
+
+    mock_router.route.return_value = IntentRoute(
+        intent="terminal",
+        confidence=0.90,
+        is_confident=True,
+    )
+    agent.run("mostrame los archivos")
+    assert mock_provider.generate.call_args.kwargs["tools"] is not None
+
+
+def test_build_system_prompt_includes_current_date_when_provided() -> None:
+    prompt = build_system_prompt(
+        host_context="System Environment:\n- OS: Linux",
+        current_date="2026-11-15",
+    )
+    assert "Current Date: 2026-11-15" in prompt
+    assert "System Environment:" in prompt
+
+
+class NamedDummyTool(BaseTool):
+    def __init__(self, tool_name: str) -> None:
+        self._tool_name = tool_name
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name=self._tool_name,
+            description=f"Dummy {self._tool_name}",
+            parameters={"type": "object"},
+        )
+
+    def execute(self, **kwargs: object) -> str:
+        return "ok"
+
+
+def test_agent_fine_grained_tool_pruning_for_terminal_and_charla_memory() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="Ok")
+    mock_router = MagicMock()
+    tools = [
+        NamedDummyTool("bash"),
+        NamedDummyTool("remember_fact"),
+        NamedDummyTool("save_episode"),
+        NamedDummyTool("recall_memory"),
+    ]
+    agent = VaquitaAgent(provider=mock_provider, tools=tools, router=mock_router)
+
+    mock_router.route.return_value = IntentRoute(intent="terminal", confidence=0.9, is_confident=True)
+    agent.run("listame los archivos")
+    sent_tools = [t.name for t in mock_provider.generate.call_args.kwargs["tools"]]
+    assert sent_tools == ["bash"]
+
+    mock_router.route.return_value = IntentRoute(intent="charla", confidence=0.85, is_confident=True)
+    agent.run("recorda que uso neovim")
+    sent_tools = [t.name for t in mock_provider.generate.call_args.kwargs["tools"]]
+    assert sent_tools == ["remember_fact", "save_episode", "recall_memory"]
+
+    mock_router.route.return_value = IntentRoute(intent="terminal", confidence=0.9, is_confident=True)
+    agent.run("guarda la salida en memoria")
+    sent_tools = [t.name for t in mock_provider.generate.call_args.kwargs["tools"]]
+    assert sent_tools == ["bash", "remember_fact", "save_episode", "recall_memory"]
+
 

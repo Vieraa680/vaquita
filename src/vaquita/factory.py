@@ -1,8 +1,10 @@
 from collections.abc import Callable
+from datetime import date
 import os
 from pathlib import Path
 
 from vaquita.core.agent import VaquitaAgent, build_system_prompt
+from vaquita.core.fast_path import BaseFastPath
 from vaquita.core.providers import (
     BaseLLMProvider,
     ProviderAuthError,
@@ -16,6 +18,7 @@ from vaquita.core.voice import (
     BaseWakeWordListener,
     WakeWordModelError,
 )
+from vaquita.infrastructure.fast_path import LocalFastPath
 from vaquita.infrastructure.host import detect_host
 from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
 from vaquita.infrastructure.voice import (
@@ -176,6 +179,17 @@ def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
             model=model,
         )
 
+    if selected == "llamacpp":
+        return OpenAICompatibleProvider(
+            api_key=os.getenv("LLAMACPP_API_KEY", ""),
+            base_url=os.getenv("LLAMACPP_BASE_URL", "http://127.0.0.1:8080/v1"),
+            model=os.getenv("LLAMACPP_MODEL", "local-model"),
+            top_p=0.9,
+            min_p=0.05,
+            repeat_penalty=1.1,
+            require_api_key=False,
+        )
+
     if selected == "openai_compat":
         return OpenAICompatibleProvider(
             api_key=os.getenv("OPENAI_API_KEY"),
@@ -183,7 +197,11 @@ def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
             model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         )
 
-    raise ValueError(f"Unknown provider '{selected}'. Supported: groq, nvidia, openai_compat.")
+    raise ValueError(f"Unknown provider '{selected}'. Supported: groq, nvidia, llamacpp, openai_compat.")
+
+
+def create_fast_path() -> BaseFastPath:
+    return LocalFastPath()
 
 
 def create_agent(
@@ -200,6 +218,8 @@ def create_agent(
     profile_store: BaseProfileStore | None = None,
     episodic_memory: BaseMemory | None = None,
     enable_memory: bool = False,
+    fast_path: BaseFastPath | None = None,
+    enable_fast_path: bool = False,
 ) -> VaquitaAgent:
     resolved_provider = provider or create_provider(provider_name=provider_name)
     resolved_confirm = None if auto_approve else confirm_fn
@@ -233,11 +253,16 @@ def create_agent(
         resolved_system_prompt = build_system_prompt(
             detect_host().format_context(),
             memory_context=memory_ctx,
+            current_date=date.today().isoformat(),
         )
 
     resolved_router = router
     if resolved_router is None and enable_router:
         resolved_router = create_router()
+
+    resolved_fast_path = fast_path
+    if resolved_fast_path is None and enable_fast_path:
+        resolved_fast_path = create_fast_path()
 
     return VaquitaAgent(
         provider=resolved_provider,
@@ -246,4 +271,5 @@ def create_agent(
         on_tool_execute=on_tool_execute,
         router=resolved_router,
         on_intent=on_intent,
+        fast_path=resolved_fast_path,
     )

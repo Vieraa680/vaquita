@@ -9,6 +9,7 @@ from vaquita.core.agent import VaquitaAgent
 from vaquita.core.providers import (
     ProviderAuthError,
     ProviderError,
+    StreamingLLMProvider,
     ToolCall,
 )
 from vaquita.core.router import IntentRoute
@@ -69,6 +70,7 @@ def build_agent(
     auto_approve: bool = False,
     enable_router: bool = True,
     enable_memory: bool = True,
+    enable_fast_path: bool = True,
 ) -> VaquitaAgent:
     confirm_fn = None if auto_approve else _confirm_command
     return create_agent(
@@ -78,7 +80,28 @@ def build_agent(
         enable_router=enable_router,
         on_intent=_log_intent,
         enable_memory=enable_memory,
+        enable_fast_path=enable_fast_path,
     )
+
+
+def _execute_and_print(agent: VaquitaAgent, prompt: str) -> None:
+    if isinstance(agent, VaquitaAgent) and isinstance(agent._provider, StreamingLLMProvider):
+        streamed = False
+
+        def on_token(token: str) -> None:
+            nonlocal streamed
+            streamed = True
+            print(token, end="", flush=True)
+
+        response = agent.run_stream(prompt, on_token=on_token)
+        if streamed:
+            print()
+        elif response:
+            print(response)
+        return
+
+    response = agent.run(prompt)
+    print(response)
 
 
 def run_interactive(agent: VaquitaAgent) -> None:
@@ -100,8 +123,7 @@ def run_interactive(agent: VaquitaAgent) -> None:
             continue
 
         try:
-            response = agent.run(user_input)
-            print(response)
+            _execute_and_print(agent, user_input)
         except ProviderError as exc:
             print(f"Error: {exc}", file=sys.stderr)
 
@@ -243,7 +265,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--provider",
-        choices=["groq", "nvidia", "openai_compat"],
+        choices=["groq", "nvidia", "llamacpp", "openai_compat"],
         help="LLM provider to use (overrides VAQUITA_PROVIDER env var).",
     )
     parser.add_argument(
@@ -382,8 +404,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if prompt_text:
         try:
-            response = agent.run(prompt_text)
-            print(response)
+            _execute_and_print(agent, prompt_text)
             return 0
         except ProviderError as exc:
             print(f"Error: {exc}", file=sys.stderr)

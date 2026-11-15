@@ -35,6 +35,17 @@ def test_create_provider_openai_compat() -> None:
         assert isinstance(provider, OpenAICompatibleProvider)
 
 
+def test_create_provider_llamacpp() -> None:
+    with patch.dict("os.environ", {}, clear=True):
+        provider = create_provider("llamacpp")
+        assert isinstance(provider, OpenAICompatibleProvider)
+        assert provider.base_url == "http://127.0.0.1:8080/v1"
+        assert provider.model == "local-model"
+        assert provider.top_p == 0.9
+        assert provider.min_p == 0.05
+        assert provider.repeat_penalty == 1.1
+
+
 def test_create_provider_unknown() -> None:
     with pytest.raises(ValueError, match="Unknown provider 'invalid'"):
         create_provider("invalid")
