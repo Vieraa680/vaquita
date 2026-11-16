@@ -10,6 +10,7 @@ import unicodedata
 
 from vaquita.core.fast_path import BaseFastPath
 from vaquita.core.router import IntentRoute
+from vaquita.core.text_prep import preprocess_query
 
 _GREETING_RESPONSES: dict[str, str] = {
     "hola": "Hola. ¿En qué te ayudo?",
@@ -29,7 +30,7 @@ _GREETING_RESPONSES: dict[str, str] = {
 }
 
 _TIME_PATTERNS = re.compile(
-    r"^(?:que hora es|dime la hora|decime la hora|hora actual|hora)$"
+    r"^(?:que hora es|dime la hora|decime la hora|hora actual|la hora|hora)$"
 )
 _DATE_PATTERNS = re.compile(
     r"^(?:que dia es(?: hoy)?|que fecha es(?: hoy)?|fecha actual|fecha de hoy|fecha)$"
@@ -38,7 +39,7 @@ _DATE_TEXT_PATTERNS = re.compile(
     r"^(?:(?:que dia|que fecha) es(?: hoy)? en (?:formato )?texto|fecha(?: actual| de hoy)? en (?:formato )?texto|que dia de la semana es(?: hoy)?)$"
 )
 _RAM_PATTERNS = re.compile(
-    r"^(?:(?:dime|decime|mostrame|muestrame|dame|ver)\s+)?(?:uso de (?:la )?ram|cuanta ram(?: tengo| uso| hay)?|(?:la |mi )?memoria ram|estado de (?:la )?ram|que (?:uso de )?ram tengo(?: ahora)?)$"
+    r"^(?:(?:dime|decime|mostrame|muestrame|dame|ver)\s+)?(?:uso de (?:la )?ram|cuanta ram(?: tengo| uso| hay)?|(?:la |mi )?memoria ram|(?:la |mi )?ram|estado de (?:la )?ram|que (?:uso de )?ram tengo(?: ahora)?)$"
 )
 _DISK_PATTERNS = re.compile(
     r"^(?:(?:dime|decime|mostrame|muestrame|dame|ver)\s+)?(?:espacio en disco|cuanto disco(?: tengo| queda| libre)?|uso de(?:l)? disco)$"
@@ -92,13 +93,6 @@ def _format_date_text(now: datetime) -> str:
     weekday = _WEEKDAYS_ES[now.weekday()]
     month = _MONTHS_ES[now.month]
     return f"Hoy es {weekday} {now.day} de {month} de {now.year}."
-
-
-def _normalize(text: str) -> str:
-    decomposed = unicodedata.normalize("NFD", text.strip().lower())
-    stripped = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
-    cleaned = re.sub(r"[^a-z0-9\s]", " ", stripped)
-    return " ".join(cleaned.split())
 
 
 def _read_ram_summary() -> str | None:
@@ -306,7 +300,7 @@ def _try_calculate(user_input: str) -> str | None:
 
 
 class LocalFastPath(BaseFastPath):
-    """Deterministic sub-millisecond handler for common greetings and read-only system queries."""
+    """Deterministic sub-millisecond handler for routed intents, exact patterns, and AST math."""
 
     def _try_handle_route(
         self,
@@ -339,22 +333,7 @@ class LocalFastPath(BaseFastPath):
             return _read_uptime_summary()
         return None
 
-    def try_handle(
-        self,
-        user_input: str,
-        route: IntentRoute | None = None,
-    ) -> str | None:
-        normalized = _normalize(user_input)
-        if not normalized:
-            return None
-
-        if normalized in _GREETING_RESPONSES:
-            return _GREETING_RESPONSES[normalized]
-
-        routed = self._try_handle_route(normalized, route)
-        if routed is not None:
-            return routed
-
+    def _match_patterns(self, normalized: str) -> str | None:
         if _TIME_PATTERNS.match(normalized):
             return f"Son las {datetime.now().strftime('%H:%M')}."
 
@@ -382,8 +361,43 @@ class LocalFastPath(BaseFastPath):
         if _TEMP_PATTERNS.match(normalized):
             return _read_cpu_temp()
 
+        return None
+
+    def try_handle(
+        self,
+        user_input: str,
+        route: IntentRoute | None = None,
+    ) -> str | None:
+        prep = preprocess_query(user_input)
+        if not prep.normalized:
+            return None
+
+        if prep.normalized in _GREETING_RESPONSES:
+            return _GREETING_RESPONSES[prep.normalized]
+
+        routed = self._try_handle_route(prep.normalized, route)
+        if routed is not None:
+            return routed
+
+        candidates = [prep.normalized]
+        for clause in reversed(prep.clauses):
+            if clause not in candidates:
+                candidates.append(clause)
+
+        for candidate in candidates:
+            matched = self._match_patterns(candidate)
+            if matched is not None:
+                return matched
+
         calc_reply = _try_calculate(user_input)
         if calc_reply is not None:
             return calc_reply
+
+        for raw_clause in reversed(re.split(r"[?!,;¿¡]+", user_input)):
+            clause = raw_clause.strip()
+            if clause and clause != user_input.strip():
+                calc_reply = _try_calculate(clause)
+                if calc_reply is not None:
+                    return calc_reply
 
         return None

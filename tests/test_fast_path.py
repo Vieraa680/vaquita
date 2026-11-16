@@ -104,3 +104,16 @@ def test_fast_path_dispatches_via_confident_route() -> None:
     text_date = fast_path.try_handle("pasame la fecha en texto por favor", route=date_route)
     assert text_date is not None
     assert str(datetime.now().year) in text_date
+
+
+def test_fast_path_handles_clause_math_and_rejects_theoretical() -> None:
+    fast_path = LocalFastPath()
+
+    assert fast_path.try_handle("hola vaquita, cuánto es 2 + 2?") == "Resultado: 4."
+
+    time_reply = fast_path.try_handle("che, decime la hora?")
+    assert time_reply is not None
+    assert re.match(r"^Son las \d{2}:\d{2}\.$", time_reply)
+
+    assert fast_path.try_handle("que es la memoria ram?") is None
+    assert fast_path.try_handle("como liberar ram en linux?") is None
