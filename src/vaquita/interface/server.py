@@ -34,6 +34,7 @@ class VaquitaHTTPServer(http.server.ThreadingHTTPServer):
         profile_store: BaseProfileStore | None = None,
         transcriber: BaseAudioTranscriber | None = None,
         recorder: BaseAudioRecorder | None = None,
+        provider_name: str | None = None,
     ) -> None:
         super().__init__(server_address, request_handler_class)
         self.agent_factory = agent_factory
@@ -41,6 +42,7 @@ class VaquitaHTTPServer(http.server.ThreadingHTTPServer):
         self.profile_store = profile_store
         self.transcriber = transcriber or create_transcriber()
         self.recorder = recorder or create_audio_recorder()
+        self.provider_name = provider_name
 
 
 class VaquitaRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -72,7 +74,10 @@ class VaquitaRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/api/health":
-            self._send_json({"status": "ok", "version": "0.1.0"})
+            payload: dict[str, Any] = {"status": "ok", "version": "0.1.0"}
+            if self.server.provider_name is not None:
+                payload["provider"] = self.server.provider_name
+            self._send_json(payload)
             return
 
         if self.path == "/api/profile":
@@ -268,6 +273,7 @@ class VaquitaServer:
         port: int = 8765,
         transcriber: BaseAudioTranscriber | None = None,
         recorder: BaseAudioRecorder | None = None,
+        provider_name: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -275,6 +281,7 @@ class VaquitaServer:
         self.profile_store = profile_store
         self.transcriber = transcriber
         self.recorder = recorder
+        self.provider_name = provider_name
         self._httpd: VaquitaHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -289,6 +296,7 @@ class VaquitaServer:
                 profile_store=self.profile_store,
                 transcriber=self.transcriber,
                 recorder=self.recorder,
+                provider_name=self.provider_name,
             )
             self.port = self._httpd.server_address[1]
         except OSError as exc:

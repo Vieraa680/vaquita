@@ -162,3 +162,20 @@ def test_server_chat_stream_endpoint() -> None:
             assert '"response": "Hola albers"' in body
     finally:
         server.stop()
+
+
+def test_server_health_includes_provider_name() -> None:
+    mock_agent = MagicMock(spec=VaquitaAgent)
+    server = VaquitaServer(
+        agent_factory=lambda: mock_agent,
+        port=0,
+        provider_name="llamacpp",
+    )
+    server.start_background()
+    try:
+        status, body = _request_json(f"http://127.0.0.1:{server.port}/api/health")
+        assert status == 200
+        assert body["status"] == "ok"
+        assert body["provider"] == "llamacpp"
+    finally:
+        server.stop()
