@@ -335,3 +335,66 @@ def test_agent_fine_grained_tool_pruning_for_terminal_and_charla_memory() -> Non
     assert sent_tools == ["bash", "remember_fact", "save_episode", "recall_memory"]
 
 
+class DescribedDummyTool(BaseTool):
+    def __init__(self, tool_name: str, description: str) -> None:
+        self._tool_name = tool_name
+        self._description = description
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name=self._tool_name,
+            description=self._description,
+            parameters={"type": "object"},
+        )
+
+    def execute(self, **kwargs: object) -> str:
+        return "ok"
+
+
+def test_agent_keeps_tools_on_charla_when_tool_keywords_or_low_confidence() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="RAM ok")
+    mock_router = MagicMock()
+    mock_router.route.return_value = IntentRoute(
+        intent="charla",
+        confidence=0.80,
+        is_confident=True,
+    )
+
+    agent = VaquitaAgent(
+        provider=mock_provider,
+        tools=[DescribedDummyTool("sys_check", "Inspect RAM and memory usage")],
+        router=mock_router,
+    )
+    agent.run("que onda? como viene mi ram?")
+    sent_tools = [t.name for t in mock_provider.generate.call_args.kwargs["tools"]]
+    assert sent_tools == ["sys_check"]
+
+    mock_router.route.return_value = IntentRoute(
+        intent="charla",
+        confidence=0.70,
+        is_confident=True,
+    )
+    agent.run("algo ambiguo")
+    assert mock_provider.generate.call_args.kwargs["tools"] is not None
+
+
+def test_agent_resolves_clause_route_when_full_query_is_unconfident() -> None:
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="Done")
+    mock_router = MagicMock()
+    mock_router.route.side_effect = [
+        IntentRoute(intent="unknown", confidence=0.40, is_confident=False),
+        IntentRoute(intent="sys_ram", confidence=0.85, is_confident=True),
+    ]
+
+    agent = VaquitaAgent(provider=mock_provider, router=mock_router)
+    agent.run("que onda? me decís que onda mi ram?")
+
+    assert agent.last_route is not None
+    assert agent.last_route.intent == "sys_ram"
+    assert mock_router.route.call_count == 2
+    assert mock_router.route.call_args_list[1].args[0] == "me decis que onda mi ram"
+
+

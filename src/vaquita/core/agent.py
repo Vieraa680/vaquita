@@ -1,4 +1,5 @@
 from collections.abc import Callable, Sequence
+from typing import Protocol, runtime_checkable
 
 from vaquita.core.fast_path import BaseFastPath
 from vaquita.core.providers import (
@@ -9,11 +10,14 @@ from vaquita.core.providers import (
     ToolDefinition,
 )
 from vaquita.core.router import BaseIntentRouter, IntentRoute
+from vaquita.core.text_prep import QueryPreprocessResult, normalize_text, preprocess_query
 from vaquita.tools.base import BaseTool
 
 DEFAULT_SYSTEM_PROMPT = (
-    "Tu nombre es Vaquita. Eres un asistente personal conciso y operativo. "
+    "Tu nombre es Vaquita. Eres un asistente personal conciso y operativo para Linux. "
     "Responde en el idioma del usuario, de forma breve y directa. "
+    "El usuario puede hablar de forma informal o coloquial: si mezcla un saludo o muletilla "
+    "con un pedido técnico o del sistema, ignora el saludo y resuelve el pedido usando herramientas. "
     "Usa herramientas solo cuando sea necesario y nunca ejecutes comandos destructivos."
 )
 
@@ -47,6 +51,96 @@ _MEMORY_CUES = (
     "soy ",
 )
 _MEMORY_TOOL_NAMES = frozenset({"remember_fact", "save_episode", "recall_memory"})
+_TOOL_KEYWORD_STOPWORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "into",
+        "that",
+        "this",
+        "use",
+        "when",
+        "only",
+        "tool",
+        "dummy",
+        "para",
+        "con",
+        "por",
+        "que",
+        "una",
+        "uno",
+        "los",
+        "las",
+        "del",
+    }
+)
+
+
+@runtime_checkable
+class BaseToolSelector(Protocol):
+    def select(
+        self,
+        user_input: str,
+        route: IntentRoute | None,
+        tools: Sequence[ToolDefinition],
+    ) -> list[ToolDefinition] | None: ...
+
+
+class DefaultToolSelector:
+    """Route-aware tool selector that derives domain cues from registered ToolDefinitions."""
+
+    def __init__(self, charla_prune_threshold: float = 0.75) -> None:
+        self._charla_prune_threshold = charla_prune_threshold
+
+    @staticmethod
+    def _derive_tool_keywords(tools: Sequence[ToolDefinition]) -> frozenset[str]:
+        keywords: set[str] = set()
+        for tool in tools:
+            if tool.name in _MEMORY_TOOL_NAMES:
+                continue
+            tokens = normalize_text(f"{tool.name} {tool.description}").split()
+            keywords.update(
+                tok
+                for tok in tokens
+                if len(tok) >= 3 and tok not in _TOOL_KEYWORD_STOPWORDS
+            )
+        return frozenset(keywords)
+
+    def select(
+        self,
+        user_input: str,
+        route: IntentRoute | None,
+        tools: Sequence[ToolDefinition],
+    ) -> list[ToolDefinition] | None:
+        if not tools:
+            return None
+
+        all_tools = list(tools)
+        if route is None or not route.is_confident:
+            return all_tools
+
+        lowered = user_input.lower()
+        has_memory_cue = any(cue in lowered for cue in _MEMORY_CUES)
+
+        if route.intent == "charla":
+            if has_memory_cue:
+                memory_tools = [t for t in all_tools if t.name in _MEMORY_TOOL_NAMES]
+                return memory_tools if memory_tools else all_tools
+            if route.confidence < self._charla_prune_threshold:
+                return all_tools
+            user_tokens = set(normalize_text(user_input).split())
+            if user_tokens & self._derive_tool_keywords(all_tools):
+                return all_tools
+            return None
+
+        if route.intent == "terminal" and not has_memory_cue:
+            terminal_tools = [t for t in all_tools if t.name not in _MEMORY_TOOL_NAMES]
+            return terminal_tools or None
+
+        return all_tools
 
 
 class VaquitaAgent:
@@ -61,6 +155,7 @@ class VaquitaAgent:
         router: BaseIntentRouter | None = None,
         on_intent: Callable[[IntentRoute], None] | None = None,
         fast_path: BaseFastPath | None = None,
+        tool_selector: BaseToolSelector | None = None,
     ) -> None:
         self._provider = provider
         self._tools_map = {tool.definition.name: tool for tool in (tools or [])}
@@ -71,6 +166,7 @@ class VaquitaAgent:
         self._router = router
         self._on_intent = on_intent
         self._fast_path = fast_path
+        self._tool_selector: BaseToolSelector = tool_selector or DefaultToolSelector()
         self._last_route: IntentRoute | None = None
         self._history: list[Message] = []
         self.reset()
@@ -123,47 +219,39 @@ class VaquitaAgent:
         user_input: str,
         route: IntentRoute | None,
     ) -> list[ToolDefinition] | None:
-        if not self._tools_map:
-            return None
-
-        if route is not None and route.is_confident:
-            lowered = user_input.lower()
-            has_memory_cue = any(cue in lowered for cue in _MEMORY_CUES)
-
-            if route.intent == "charla":
-                if not has_memory_cue:
-                    return None
-                memory_tools = [
-                    t.definition
-                    for t in self._tools_map.values()
-                    if t.definition.name in _MEMORY_TOOL_NAMES
-                ]
-                return memory_tools if memory_tools else self.tool_definitions
-
-            if route.intent == "terminal" and not has_memory_cue:
-                terminal_tools = [
-                    t.definition
-                    for t in self._tools_map.values()
-                    if t.definition.name not in _MEMORY_TOOL_NAMES
-                ]
-                return terminal_tools or None
-
-        return self.tool_definitions
+        return self._tool_selector.select(user_input, route, self.tool_definitions)
 
     def run(self, user_input: str) -> str:
         return self.run_stream(user_input, on_token=None)
+
+    def _resolve_route(
+        self,
+        user_input: str,
+        prep: QueryPreprocessResult,
+    ) -> IntentRoute | None:
+        if self._router is None:
+            return None
+
+        route = self._router.route(user_input)
+        if len(prep.clauses) > 1:
+            last_clause = prep.clauses[-1]
+            if last_clause and last_clause != prep.normalized:
+                if not route.is_confident or route.intent == "charla":
+                    clause_route = self._router.route(last_clause)
+                    if clause_route.is_confident and clause_route.intent != "charla":
+                        route = clause_route
+
+        if self._on_intent:
+            self._on_intent(route)
+        return route
 
     def run_stream(
         self,
         user_input: str,
         on_token: Callable[[str], None] | None = None,
     ) -> str:
-        if self._router is not None:
-            self._last_route = self._router.route(user_input)
-            if self._on_intent:
-                self._on_intent(self._last_route)
-        else:
-            self._last_route = None
+        prep = preprocess_query(user_input)
+        self._last_route = self._resolve_route(user_input, prep)
 
         self._history.append(Message(role="user", content=user_input))
 
