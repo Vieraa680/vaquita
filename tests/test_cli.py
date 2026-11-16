@@ -216,3 +216,83 @@ def test_main_serve_port_in_use(capsys: pytest.CaptureFixture[str]) -> None:
         assert code == 1
         captured = capsys.readouterr()
         assert "El puerto 8765 ya está en uso" in captured.err
+
+
+def test_main_uses_running_daemon_stream(capsys: pytest.CaptureFixture[str]) -> None:
+    from vaquita.core.agent import VaquitaAgent
+    from vaquita.interface.server import VaquitaServer
+
+    mock_agent = MagicMock(spec=VaquitaAgent)
+
+    def fake_run_stream(prompt: str, on_token: object = None) -> str:
+        if callable(on_token):
+            on_token("Hola ")
+            on_token("rápido")
+        return "Hola rápido"
+
+    mock_agent.run_stream.side_effect = fake_run_stream
+    mock_agent.last_route = None
+
+    server = VaquitaServer(
+        agent_factory=lambda: mock_agent,
+        port=0,
+        provider_name="llamacpp",
+    )
+    server.start_background()
+    try:
+        with patch("vaquita.interface.cli.build_agent") as mock_builder:
+            code = main(["--port", str(server.port), "--provider", "llamacpp", "hola"])
+            assert code == 0
+            mock_builder.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Hola rápido" in captured.out
+    finally:
+        server.stop()
+
+
+def test_main_falls_back_on_provider_mismatch_or_no_daemon(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vaquita.core.agent import VaquitaAgent
+    from vaquita.interface.server import VaquitaServer
+
+    daemon_agent = MagicMock(spec=VaquitaAgent)
+    server = VaquitaServer(
+        agent_factory=lambda: daemon_agent,
+        port=0,
+        provider_name="llamacpp",
+    )
+    server.start_background()
+
+    local_agent = MagicMock()
+    local_agent.run.return_value = "Local groq reply"
+    try:
+        with patch("vaquita.interface.cli.build_agent", return_value=local_agent) as mock_builder:
+            code = main(["--port", str(server.port), "--provider", "groq", "hola"])
+            assert code == 0
+            mock_builder.assert_called_once()
+        captured = capsys.readouterr()
+        assert "Local groq reply" in captured.out
+
+        with patch("vaquita.interface.cli.build_agent", return_value=local_agent) as mock_builder:
+            code = main(["--port", str(server.port), "--no-daemon", "hola"])
+            assert code == 0
+            mock_builder.assert_called_once()
+    finally:
+        server.stop()
+
+
+def test_main_teach_flag_adds_sample_and_retrains(capsys: pytest.CaptureFixture[str]) -> None:
+    from vaquita.neural.router import NeuralIntentRouter
+
+    mock_router = MagicMock(spec=NeuralIntentRouter)
+    with patch("vaquita.factory.create_router", return_value=mock_router):
+        code = main(["--teach", "sys_ram", "tirame la posta de la memoria"])
+
+    assert code == 0
+    mock_router.add_samples.assert_called_once_with(
+        [("tirame la posta de la memoria", "sys_ram")],
+        retrain=True,
+    )
+    captured = capsys.readouterr()
+    assert "Aprendido: 'tirame la posta de la memoria' -> sys_ram" in captured.out

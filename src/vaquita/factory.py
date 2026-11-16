@@ -184,6 +184,7 @@ def create_provider(provider_name: str | None = None) -> BaseLLMProvider:
             api_key=os.getenv("LLAMACPP_API_KEY", ""),
             base_url=os.getenv("LLAMACPP_BASE_URL", "http://127.0.0.1:8080/v1"),
             model=os.getenv("LLAMACPP_MODEL", "local-model"),
+            temperature=0.15,
             top_p=0.9,
             min_p=0.05,
             repeat_penalty=1.1,

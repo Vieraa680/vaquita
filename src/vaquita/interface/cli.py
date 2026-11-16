@@ -1,7 +1,11 @@
 import argparse
+from collections.abc import Sequence
+import json
+import os
 from pathlib import Path
 import sys
-from collections.abc import Sequence
+import urllib.error
+import urllib.request
 
 from dotenv import load_dotenv
 
@@ -14,7 +18,6 @@ from vaquita.core.providers import (
 )
 from vaquita.core.router import IntentRoute
 from vaquita.core.voice import BaseWakeWordListener, WakeWordEvent, WakeWordModelError
-from vaquita.factory import create_agent
 
 
 def _trigger_hud(action: str = "toggle") -> bool:
@@ -72,6 +75,8 @@ def build_agent(
     enable_memory: bool = True,
     enable_fast_path: bool = True,
 ) -> VaquitaAgent:
+    from vaquita.factory import create_agent
+
     confirm_fn = None if auto_approve else _confirm_command
     return create_agent(
         provider_name=provider_name,
@@ -82,6 +87,96 @@ def build_agent(
         enable_memory=enable_memory,
         enable_fast_path=enable_fast_path,
     )
+
+
+def _try_daemon_stream(
+    host: str,
+    port: int,
+    prompt: str,
+    requested_provider: str | None = None,
+) -> int | None:
+    base_url = f"http://{host}:{port}"
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/health", timeout=0.15) as health_resp:
+            if health_resp.status != 200:
+                return None
+            health = json.loads(health_resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+    if not isinstance(health, dict) or health.get("status") != "ok":
+        return None
+
+    daemon_provider = health.get("provider")
+    if (
+        requested_provider is not None
+        and isinstance(daemon_provider, str)
+        and daemon_provider.lower() != requested_provider.lower()
+    ):
+        return None
+
+    req = urllib.request.Request(
+        f"{base_url}/api/chat/stream",
+        data=json.dumps({"prompt": prompt}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    streamed = False
+    current_event = "message"
+    try:
+        with urllib.request.urlopen(req, timeout=60.0) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line.startswith("event:"):
+                    current_event = line[6:].strip()
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                payload = json.loads(line[5:].strip())
+                if current_event == "token":
+                    token = str(payload.get("token", ""))
+                    if token:
+                        streamed = True
+                        print(token, end="", flush=True)
+                elif current_event == "done":
+                    if streamed:
+                        print()
+                    elif payload.get("response"):
+                        print(str(payload["response"]))
+                    return 0
+                elif current_event == "error":
+                    if streamed:
+                        print()
+                    print(f"Error: {payload.get('error', 'Unknown daemon error')}", file=sys.stderr)
+                    return 1
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+    return 0 if streamed else None
+
+
+def _teach_intent(
+    intent: str,
+    text: str,
+    router: object | None = None,
+) -> int:
+    from vaquita.factory import create_router
+    from vaquita.neural.router import NeuralIntentRouter
+
+    clean_intent = intent.strip()
+    clean_text = text.strip()
+    if not clean_intent or not clean_text:
+        print("Error: intent and text must not be empty.", file=sys.stderr)
+        return 1
+
+    target_router = router if isinstance(router, NeuralIntentRouter) else create_router()
+    if not isinstance(target_router, NeuralIntentRouter):
+        print("Error: active router does not support continuous learning.", file=sys.stderr)
+        return 1
+
+    target_router.add_samples([(clean_text, clean_intent)], retrain=True)
+    print(f"[router] Aprendido: '{clean_text}' -> {clean_intent}")
+    return 0
 
 
 def _execute_and_print(agent: VaquitaAgent, prompt: str) -> None:
@@ -120,6 +215,13 @@ def run_interactive(agent: VaquitaAgent) -> None:
         if user_input.lower() in ("clear", "reset"):
             agent.reset()
             print("Session history cleared.")
+            continue
+        if user_input.lower().startswith("/teach "):
+            parts = user_input.split(maxsplit=2)
+            if len(parts) < 3 or not parts[2].strip():
+                print("Uso: /teach <intent> <frase>", file=sys.stderr)
+                continue
+            _teach_intent(parts[1].strip(), parts[2].strip(), router=agent._router)
             continue
 
         try:
@@ -160,6 +262,7 @@ def _run_serve(args: argparse.Namespace) -> int:
     from vaquita.interface.server import ServerError, VaquitaServer
 
     profile_store = create_profile_store() if args.memory else None
+    active_provider = args.provider or os.getenv("VAQUITA_PROVIDER") or "groq"
     server = VaquitaServer(
         agent_factory=lambda: build_agent(
             provider_name=args.provider,
@@ -170,6 +273,7 @@ def _run_serve(args: argparse.Namespace) -> int:
         profile_store=profile_store,
         host=args.host,
         port=args.port,
+        provider_name=active_provider,
     )
 
     try:
@@ -338,12 +442,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Host address for the local HTTP daemon (default: 127.0.0.1).",
     )
     parser.add_argument(
+        "--no-daemon",
+        action="store_true",
+        help="Bypass any running local Vaquita daemon and run standalone.",
+    )
+    parser.add_argument(
+        "--teach",
+        nargs=2,
+        metavar=("INTENT", "TEXT"),
+        default=None,
+        help="Teach the local intent router a new phrase and retrain.",
+    )
+    parser.add_argument(
         "prompt",
         nargs="*",
         help="Prompt to execute directly. If omitted, starts interactive mode.",
     )
 
     args, remaining = parser.parse_known_args(argv)
+
+    if args.teach is not None:
+        return _teach_intent(args.teach[0], args.teach[1])
 
     if args.hud:
         if _trigger_hud("toggle"):
@@ -356,6 +475,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.listen:
         return _run_listen(args)
+
+    prompt_tokens = list(args.prompt) + remaining
+    prompt_text = " ".join(prompt_tokens).strip()
+
+    if prompt_text and not args.voice and not args.no_daemon and args.router and args.memory:
+        daemon_exit = _try_daemon_stream(
+            host=args.host,
+            port=args.port,
+            prompt=prompt_text,
+            requested_provider=args.provider,
+        )
+        if daemon_exit is not None:
+            return daemon_exit
 
     try:
         agent = build_agent(
@@ -370,9 +502,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         print(f"Initialization error: {exc}", file=sys.stderr)
         return 1
-
-    prompt_tokens = list(args.prompt) + remaining
-    prompt_text = " ".join(prompt_tokens).strip()
 
     if args.voice:
         from vaquita.core.voice import VoiceError

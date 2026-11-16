@@ -129,3 +129,12 @@ def test_create_memory_factories_and_agent_injection(tmp_path: Path) -> None:
     assert "remember_fact" in tool_names
     assert "save_episode" in tool_names
     assert "recall_memory" in tool_names
+
+
+def test_create_llamacpp_provider_uses_low_temperature_for_tool_calling() -> None:
+    from vaquita.factory import create_provider
+    from vaquita.infrastructure.openai_compat import OpenAICompatibleProvider
+
+    provider = create_provider("llamacpp")
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.temperature == 0.15
