@@ -116,3 +116,16 @@ def test_intent_validation_errors() -> None:
 
     with pytest.raises(ValueError, match="weight_decay"):
         classifier.fit(TRAINING_SAMPLES, weight_decay=-0.1)
+
+
+def test_intent_classifier_schema_version_and_idf_saved(tmp_path: Path) -> None:
+    classifier = IntentClassifier(hidden_size=8, seed=42)
+    classifier.fit(TRAINING_SAMPLES, epochs=60, learning_rate=0.5)
+
+    model_path = tmp_path / "intent.json"
+    classifier.save(model_path)
+    loaded = IntentClassifier.load(model_path)
+
+    assert loaded.schema_version == 2
+    assert loaded.vocab_size == classifier.vocab_size
+    assert loaded._vectorizer.idf_weights == classifier._vectorizer.idf_weights

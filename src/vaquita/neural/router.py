@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from vaquita.core.router import BaseIntentRouter, IntentRoute
-from vaquita.neural.intent import IntentClassifier
+from vaquita.neural.intent import FEATURE_SCHEMA_VERSION, IntentClassifier
 
 DEFAULT_MODEL_DIR = Path.home() / ".config" / "vaquita" / "models"
 DEFAULT_MODEL_PATH = DEFAULT_MODEL_DIR / "intent.json"
@@ -83,8 +83,8 @@ class NeuralIntentRouter(BaseIntentRouter):
 
     def train_and_save(
         self,
-        epochs: int = 100,
-        learning_rate: float = 0.6,
+        epochs: int = 160,
+        learning_rate: float = 0.8,
     ) -> list[float]:
         losses = self.classifier.fit(
             self._samples,
@@ -129,6 +129,7 @@ class NeuralIntentRouter(BaseIntentRouter):
 
         seed_samples = load_bundled_seed_dataset()
         samples = list(seed_samples)
+        seed_updated = False
         if resolved_dataset.is_file():
             try:
                 raw_data = json.loads(resolved_dataset.read_text(encoding="utf-8"))
@@ -145,13 +146,21 @@ class NeuralIntentRouter(BaseIntentRouter):
                             if sample not in existing:
                                 samples.append(sample)
                                 existing.add(sample)
+                                seed_updated = True
             except (json.JSONDecodeError, KeyError):
                 pass
+        else:
+            seed_updated = True
 
         seed_intents = {intent for _, intent in seed_samples}
         if resolved_model.is_file():
             classifier = IntentClassifier.load(resolved_model)
-            if auto_train and not seed_intents.issubset(set(classifier.labels)):
+            needs_retrain = (
+                not seed_intents.issubset(set(classifier.labels))
+                or classifier.schema_version < FEATURE_SCHEMA_VERSION
+                or seed_updated
+            )
+            if auto_train and needs_retrain:
                 fresh_classifier = IntentClassifier(hidden_size=12, seed=seed)
                 router = cls(
                     classifier=fresh_classifier,

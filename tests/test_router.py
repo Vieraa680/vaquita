@@ -123,3 +123,34 @@ def test_neural_intent_router_retrains_when_seed_adds_new_intents(tmp_path: Path
     route_ip = upgraded.route("me pasas mi direccion ip")
     assert route_ip.intent == "sys_ip"
     assert route_ip.is_confident is True
+
+
+def test_neural_intent_router_retrains_when_schema_version_is_outdated(tmp_path: Path) -> None:
+    model_file = tmp_path / "models" / "intent.json"
+    dataset_file = tmp_path / "models" / "dataset.json"
+
+    router = NeuralIntentRouter.from_path_or_seed(
+        model_path=model_file,
+        dataset_path=dataset_file,
+        auto_train=True,
+    )
+    assert router.classifier.schema_version == 2
+
+    # Simulate legacy v1 model on disk
+    import json
+    raw = json.loads(model_file.read_text(encoding="utf-8"))
+    raw["schema_version"] = 1
+    model_file.write_text(json.dumps(raw), encoding="utf-8")
+
+    reloaded = NeuralIntentRouter.from_path_or_seed(
+        model_path=model_file,
+        dataset_path=dataset_file,
+        auto_train=True,
+    )
+    assert reloaded.classifier.schema_version == 2
+    ram_route = reloaded.route("me decis que onda mi ram")
+    assert ram_route.intent == "sys_ram"
+    assert ram_route.is_confident is True
+
+    theoretical_route = reloaded.route("que es la memoria ram?")
+    assert theoretical_route.intent != "sys_ram"
