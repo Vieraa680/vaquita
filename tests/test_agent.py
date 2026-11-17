@@ -398,3 +398,31 @@ def test_agent_resolves_clause_route_when_full_query_is_unconfident() -> None:
     assert mock_router.route.call_args_list[1].args[0] == "me decis que onda mi ram"
 
 
+def test_agent_injects_relevant_episodic_memories_without_polluting_history() -> None:
+    from vaquita.memory.base import MemoryRecord
+
+    mock_provider = MagicMock()
+    mock_provider.generate.return_value = LLMResponse(text="Usaste Docker la semana pasada.")
+    mock_memory = MagicMock()
+    mock_memory.search.return_value = [
+        MemoryRecord(id="1", content="El proyecto usa Docker Compose", category="infra", score=0.55),
+        MemoryRecord(id="2", content="Ruido irrelevante", category="general", score=0.10),
+    ]
+
+    agent = VaquitaAgent(
+        provider=mock_provider,
+        episodic_memory=mock_memory,
+        memory_limit=3,
+        min_memory_score=0.2,
+    )
+    reply = agent.run("como levantamos el proyecto?")
+
+    assert reply == "Usaste Docker la semana pasada."
+    mock_memory.search.assert_called_once_with("como levantamos el proyecto?", limit=3)
+    sent_messages = mock_provider.generate.call_args.args[0]
+    assert sent_messages[1].role == "system"
+    assert "El proyecto usa Docker Compose" in (sent_messages[1].content or "")
+    assert "Ruido irrelevante" not in (sent_messages[1].content or "")
+    assert all("Relevant Episodic Memories" not in (m.content or "") for m in agent.history)
+
+

@@ -11,6 +11,7 @@ from vaquita.core.providers import (
 )
 from vaquita.core.router import BaseIntentRouter, IntentRoute
 from vaquita.core.text_prep import QueryPreprocessResult, normalize_text, preprocess_query
+from vaquita.memory.base import BaseMemory
 from vaquita.tools.base import BaseTool
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -156,6 +157,9 @@ class VaquitaAgent:
         on_intent: Callable[[IntentRoute], None] | None = None,
         fast_path: BaseFastPath | None = None,
         tool_selector: BaseToolSelector | None = None,
+        episodic_memory: BaseMemory | None = None,
+        memory_limit: int = 3,
+        min_memory_score: float = 0.2,
     ) -> None:
         self._provider = provider
         self._tools_map = {tool.definition.name: tool for tool in (tools or [])}
@@ -167,6 +171,9 @@ class VaquitaAgent:
         self._on_intent = on_intent
         self._fast_path = fast_path
         self._tool_selector: BaseToolSelector = tool_selector or DefaultToolSelector()
+        self._episodic_memory = episodic_memory
+        self._memory_limit = max(1, memory_limit)
+        self._min_memory_score = min_memory_score
         self._last_route: IntentRoute | None = None
         self._history: list[Message] = []
         self.reset()
@@ -245,6 +252,28 @@ class VaquitaAgent:
             self._on_intent(route)
         return route
 
+    def _retrieve_memory_message(self, user_input: str) -> Message | None:
+        if self._episodic_memory is None:
+            return None
+
+        records = self._episodic_memory.search(user_input, limit=self._memory_limit)
+        relevant = [r for r in records if r.score >= self._min_memory_score]
+        if not relevant:
+            return None
+
+        lines = ["Relevant Episodic Memories:"]
+        for rec in relevant:
+            lines.append(f"- [{rec.category}] {rec.content}")
+        return Message(role="system", content="\n".join(lines))
+
+    def _with_memory_context(self, memory_msg: Message | None) -> list[Message]:
+        messages = list(self._history)
+        if memory_msg is None:
+            return messages
+        insert_idx = 1 if messages and messages[0].role == "system" else 0
+        messages.insert(insert_idx, memory_msg)
+        return messages
+
     def run_stream(
         self,
         user_input: str,
@@ -266,16 +295,18 @@ class VaquitaAgent:
 
         self._trim_history()
         tool_defs = self._select_tools(user_input, self._last_route)
+        memory_msg = self._retrieve_memory_message(user_input)
 
         for iteration in range(self._max_iterations):
+            turn_messages = self._with_memory_context(memory_msg)
             if on_token is not None and isinstance(self._provider, StreamingLLMProvider):
                 response = self._provider.generate_stream(
-                    list(self._history),
+                    turn_messages,
                     tools=tool_defs,
                     on_token=on_token,
                 )
             else:
-                response = self._provider.generate(list(self._history), tools=tool_defs)
+                response = self._provider.generate(turn_messages, tools=tool_defs)
                 if on_token is not None and response.text and not response.tool_calls:
                     on_token(response.text)
 

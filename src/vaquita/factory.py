@@ -273,4 +273,5 @@ def create_agent(
         router=resolved_router,
         on_intent=on_intent,
         fast_path=resolved_fast_path,
+        episodic_memory=resolved_episodic,
     )
