@@ -83,13 +83,15 @@ class NeuralIntentRouter(BaseIntentRouter):
 
     def train_and_save(
         self,
-        epochs: int = 160,
-        learning_rate: float = 0.8,
+        epochs: int = 300,
+        learning_rate: float = 1.0,
+        weight_decay: float = 0.002,
     ) -> list[float]:
         losses = self.classifier.fit(
             self._samples,
             epochs=epochs,
             learning_rate=learning_rate,
+            weight_decay=weight_decay,
         )
         if self.model_path is not None:
             self.classifier.save(self.model_path)
