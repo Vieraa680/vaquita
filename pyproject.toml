@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vaquita"
-version = "0.2.0"
+version = "0.3.0"
 description = "Virtual Assistant Query & Utility Interface for Terminal Automation"
 readme = "README.md"
 requires-python = ">=3.11"
