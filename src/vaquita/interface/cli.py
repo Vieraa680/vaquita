@@ -75,6 +75,7 @@ def build_agent(
     enable_memory: bool = True,
     enable_fast_path: bool = True,
     enable_reminders: bool = True,
+    enable_file_tools: bool = True,
 ) -> VaquitaAgent:
     from vaquita.factory import create_agent
 
@@ -88,6 +89,7 @@ def build_agent(
         enable_memory=enable_memory,
         enable_fast_path=enable_fast_path,
         enable_reminders=enable_reminders,
+        enable_file_tools=enable_file_tools,
     )
 
 

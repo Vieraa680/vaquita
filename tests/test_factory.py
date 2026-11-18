@@ -152,3 +152,9 @@ def test_create_agent_with_reminders_enabled(tmp_path: Path) -> None:
     )
     tool_names = [t.name for t in agent.tool_definitions]
     assert {"set_reminder", "list_reminders", "cancel_reminder"}.issubset(tool_names)
+
+
+def test_create_agent_with_file_tools_enabled() -> None:
+    agent = create_agent(provider=MagicMock(), enable_file_tools=True)
+    tool_names = [t.name for t in agent.tool_definitions]
+    assert {"read_file", "search_files"}.issubset(tool_names)

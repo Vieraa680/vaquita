@@ -37,6 +37,7 @@ from vaquita.memory import (
 from vaquita.neural.router import NeuralIntentRouter
 from vaquita.tools.base import BaseTool
 from vaquita.tools.bash import BashTool
+from vaquita.tools.files import ReadFileTool, SearchFilesTool
 from vaquita.tools.memory import (
     RecallMemoryTool,
     RememberFactTool,
@@ -234,6 +235,7 @@ def create_agent(
     enable_fast_path: bool = False,
     reminder_store: BaseReminderStore | None = None,
     enable_reminders: bool = False,
+    enable_file_tools: bool = False,
 ) -> VaquitaAgent:
     resolved_provider = provider or create_provider(provider_name=provider_name)
     resolved_confirm = None if auto_approve else confirm_fn
@@ -268,6 +270,8 @@ def create_agent(
                     CancelReminderTool(resolved_reminders),
                 ]
             )
+        if enable_file_tools:
+            resolved_tools.extend([ReadFileTool(), SearchFilesTool()])
 
     if system_prompt is not None:
         resolved_system_prompt = system_prompt
