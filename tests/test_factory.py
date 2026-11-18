@@ -158,3 +158,9 @@ def test_create_agent_with_file_tools_enabled() -> None:
     agent = create_agent(provider=MagicMock(), enable_file_tools=True)
     tool_names = [t.name for t in agent.tool_definitions]
     assert {"read_file", "search_files"}.issubset(tool_names)
+
+
+def test_create_agent_with_media_tools_enabled() -> None:
+    agent = create_agent(provider=MagicMock(), enable_media_tools=True)
+    tool_names = [t.name for t in agent.tool_definitions]
+    assert "media_control" in tool_names
