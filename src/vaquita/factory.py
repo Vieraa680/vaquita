@@ -42,6 +42,13 @@ from vaquita.tools.memory import (
     RememberFactTool,
     SaveEpisodeTool,
 )
+from vaquita.tools.reminders import (
+    BaseReminderStore,
+    CancelReminderTool,
+    ListRemindersTool,
+    SQLiteReminderStore,
+    SetReminderTool,
+)
 
 
 def create_router(
@@ -62,6 +69,10 @@ def create_profile_store(path: Path | str | None = None) -> BaseProfileStore:
 
 def create_episodic_memory(db_path: Path | str | None = None) -> BaseMemory:
     return EpisodicMemoryStore(db_path=db_path)
+
+
+def create_reminder_store(db_path: Path | str | None = None) -> BaseReminderStore:
+    return SQLiteReminderStore(db_path=db_path)
 
 
 def create_audio_recorder(sample_rate: int = 16000) -> BaseAudioRecorder:
@@ -221,6 +232,8 @@ def create_agent(
     enable_memory: bool = False,
     fast_path: BaseFastPath | None = None,
     enable_fast_path: bool = False,
+    reminder_store: BaseReminderStore | None = None,
+    enable_reminders: bool = False,
 ) -> VaquitaAgent:
     resolved_provider = provider or create_provider(provider_name=provider_name)
     resolved_confirm = None if auto_approve else confirm_fn
@@ -244,6 +257,15 @@ def create_agent(
                 [
                     SaveEpisodeTool(resolved_episodic),
                     RecallMemoryTool(resolved_episodic),
+                ]
+            )
+        if enable_reminders:
+            resolved_reminders = reminder_store or create_reminder_store()
+            resolved_tools.extend(
+                [
+                    SetReminderTool(resolved_reminders),
+                    ListRemindersTool(resolved_reminders),
+                    CancelReminderTool(resolved_reminders),
                 ]
             )
 

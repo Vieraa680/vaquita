@@ -139,3 +139,16 @@ def test_create_llamacpp_provider_uses_low_temperature_for_tool_calling() -> Non
     provider = create_provider("llamacpp")
     assert isinstance(provider, OpenAICompatibleProvider)
     assert provider.temperature == 0.15
+
+
+def test_create_agent_with_reminders_enabled(tmp_path: Path) -> None:
+    from vaquita.factory import create_reminder_store
+
+    store = create_reminder_store(db_path=tmp_path / "reminders.db")
+    agent = create_agent(
+        provider=MagicMock(),
+        reminder_store=store,
+        enable_reminders=True,
+    )
+    tool_names = [t.name for t in agent.tool_definitions]
+    assert {"set_reminder", "list_reminders", "cancel_reminder"}.issubset(tool_names)
